@@ -1,0 +1,16 @@
+run = "npm run install:all && npm run migrate && npm run dev"
+entrypoint = "package.json"
+
+[nix]
+channel = "stable-24_05"
+
+# The frontend (Next.js) is what a visitor should actually see —
+# Replit exposes this as the public URL. The backend (port 4000) is
+# reached by the frontend internally, not visited directly.
+[[ports]]
+localPort = 3000
+externalPort = 80
+
+[[ports]]
+localPort = 4000
+externalPort = 4000

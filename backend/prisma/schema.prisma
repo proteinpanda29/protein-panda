@@ -1,0 +1,1651 @@
+// ==========================================================
+// Protein Panda — PostgreSQL schema (Prisma)
+// ==========================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------
+// ENUMS
+// ---------------------------------------------------------
+
+enum Role {
+  CUSTOMER
+  ADMIN
+  DELIVERY
+}
+
+/**
+ * The 6 operating departments — a Staff member is assigned to exactly
+ * one (or none, meaning full Owner/Admin access to everything). This
+ * is deliberately separate from Role: Role controls which PORTAL
+ * (customer/admin/delivery) an account can log into at all; Department
+ * controls what an ADMIN-portal account can actually see and do once
+ * inside. A cashier and the owner both have role=ADMIN (they both use
+ * the admin portal), but very different departments.
+ */
+enum StaffDepartment {
+  SALES               // POS, orders, payments, refunds, coupons
+  OPERATIONS          // Kitchen, food safety, shop operations
+  SUPPLY_CHAIN        // Inventory, suppliers, purchasing, costing
+  LOYALTY             // Points, rewards, games, achievements, memberships
+  DELIVERY_LOGISTICS  // Riders, delivery tracking, delivery performance
+  FINANCE_MARKETING   // Cash, reconciliation, coupons/campaigns, analytics
+}
+
+enum Goal {
+  MUSCLE_STRENGTH
+  FAT_LOSS
+  WEIGHT_MANAGEMENT
+  BODYBUILDING
+  HEALTHY_LIFESTYLE
+  ELDER_FRIENDLY
+}
+
+enum DietaryPreference {
+  VEG
+  NON_VEG
+  EGGETARIAN
+}
+
+enum OrderChannel {
+  WEBSITE
+  APP
+  WHATSAPP
+  IN_STORE
+  SWIGGY
+  ZOMATO
+  MEMBERSHIP
+}
+
+enum OrderStatus {
+  RECEIVED
+  ACCEPTED
+  PREPARING
+  READY
+  ASSIGNED
+  OUT_FOR_DELIVERY
+  ARRIVED
+  DELIVERED
+  // Distinct from CANCELLED: a delivery was actually attempted (a rider
+  // was out with the order) and could not be completed, vs. CANCELLED
+  // meaning the order was called off before/without an attempt. Both
+  // still go through RefundsService for whatever was paid — the
+  // distinction is about what happened operationally, for the admin's
+  // own reporting, not about the refund logic.
+  FAILED
+  CANCELLED
+}
+
+enum DeliveryFailureReason {
+  CUSTOMER_UNAVAILABLE
+  WRONG_ADDRESS
+  CUSTOMER_CANCELLED
+  RIDER_ISSUE
+  VEHICLE_ISSUE
+  RESTAURANT_DELAY
+  OTHER
+}
+
+enum FulfillmentType {
+  DELIVERY
+  PICKUP
+  // In-store dine-in — the customer eats/drinks at the shop rather than
+  // taking it away or having it delivered. Meaningfully different from
+  // PICKUP for a POS/counter sale: no packaging needed, may want table
+  // tracking later, and it's a real, common distinction a physical
+  // food shop needs that this app didn't have until now.
+  DINE_IN
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  CASH
+  UPI
+  CARD
+  WALLET
+}
+
+enum PointsSourceType {
+  PURCHASE
+  GAME_PARTICIPATION
+  GAME_WIN
+  STREAK_BONUS
+  GOAL_ACHIEVEMENT
+  REFERRAL
+  REDEMPTION
+  ADMIN_ADJUSTMENT
+  ACHIEVEMENT_UNLOCKED
+  REFUND_REVERSAL
+}
+
+enum RewardType {
+  DISCOUNT
+  FREE_ADDON
+  FREE_ITEM
+  GAME_ATTEMPT
+  SPECIAL
+}
+
+enum StockMovementType {
+  RESTOCK
+  SALE_DEDUCTION
+  WASTAGE
+  ADJUSTMENT
+  REFUND_RESTOCK
+}
+
+enum AddonGroup {
+  BASE     // e.g. Whey / Plant protein
+  FLAVOUR  // e.g. Chocolate / Vanilla / Mango
+  LIQUID   // e.g. Milk / Water
+  ADDON    // e.g. Banana, Dates, Extra scoop — multi-select
+}
+
+// ---------------------------------------------------------
+// USERS / AUTH
+// ---------------------------------------------------------
+
+model User {
+  id           String   @id @default(uuid())
+  role         Role
+  // Both are optional at the DB level (SQLite/Postgres can't express
+  // "at least one of" as a column constraint) but AuthService enforces
+  // that every user has at least one identifier before creating an
+  // account. No password is ever used anywhere — mobile+OTP and
+  // email+OTP are the only two login methods.
+  phone        String?  @unique
+  email        String?  @unique
+  isActive     Boolean  @default(true)
+  // Set when a customer deletes their own account (see
+  // CustomersService.deleteMyAccount). isActive=false is what actually
+  // revokes access immediately (checked on every request already,
+  // including the WebSocket gateway) — this field is purely a
+  // distinguishing record of *why*, for support/audit purposes, not a
+  // second access-control mechanism.
+  deletedAt    DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  customer       Customer?
+  staff          Staff?
+  deliveryPerson DeliveryPerson?
+  otpCodes       OtpCode[]
+  posOrdersProcessed Order[]
+  refundsProcessed   Refund[]
+  foodSafetyLogs     FoodSafetyLog[]
+  announcementsSent  AnnouncementLog[]
+  cashShiftsOpened   CashShift[] @relation("CashShiftsOpened")
+  cashShiftsClosed   CashShift[] @relation("CashShiftsClosed")
+  staffShifts        StaffShift[]
+  supportRepliesSent SupportTicketMessage[]
+  sessions           Session[]
+  auditLogs          AuditLog[]
+  storeChecklistLogsSubmitted StoreChecklistLog[]
+  businessDaysClosed BusinessDay[]
+  purchaseRequestsRequested PurchaseRequest[] @relation("PurchaseRequestsRequested")
+  purchaseRequestsApproved PurchaseRequest[] @relation("PurchaseRequestsApproved")
+  expensesRecorded  Expense[]
+
+  @@index([role])
+}
+
+model OtpCode {
+  id         String   @id @default(uuid())
+  // The raw identifier (phone or email) the OTP was requested for. Set
+  // even before a User exists, since self-signup generates the OTP
+  // first and only creates the User record once the code is verified.
+  identifier String
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash   String
+  purpose    String // LOGIN, VERIFY_PHONE, RESET_PASSWORD (kept for future use — no reset flow exists since there's no password)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime @default(now())
+
+  @@index([identifier, purpose])
+}
+
+// ---------------------------------------------------------
+// CUSTOMER DOMAIN
+// ---------------------------------------------------------
+
+model Customer {
+  id                String            @id @default(uuid())
+  userId            String            @unique
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name              String
+  profilePhotoUrl   String?
+  address           String? // last-used delivery address — updated whenever a delivery order supplies a new one
+  goal              Goal?
+  dietaryPreference DietaryPreference?
+  dailyProteinGoalG Decimal?          @db.Decimal(6, 2)
+  dailyCalorieGoal  Int?
+  referredByCode    String?
+  referralCode      String            @unique @default(cuid())
+  // Opt-in only, collected at signup — powers the Gym vs Gym leaderboard.
+  // A customer with no gymName is simply excluded from any gym grouping.
+  gymName           String?
+  // Privacy preferences — a customer can opt out of marketing at any
+  // time without affecting transactional messages (order confirmations,
+  // OTPs, delivery updates), which are never gated by this flag.
+  marketingOptIn    Boolean           @default(false)
+  orderUpdatesOptIn Boolean           @default(true)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  allergies         CustomerAllergy[]
+  orders            Order[]
+  nutritionLogs     NutritionLog[]
+  streak            Streak?
+  attendance        Attendance[]
+  pointsLedger      PointsLedgerEntry[]
+  pointsBalance     PointsBalance?
+  gameAttempts      GameAttempt[]
+  rewardRedemptions RewardRedemption[]
+  proteinGoalRuns   ProteinGoalRun[]
+  reviews           Review[]
+  favourites        Favourite[]
+  addresses         Address[]
+  wallet            Wallet?
+  pushSubscriptions PushSubscription[]
+  memberships       Membership[]
+  achievements      CustomerAchievement[]
+  aiSafetyFlags     AiSafetyFlag[]
+  notifications     Notification[]
+  supportTickets    SupportTicket[]
+
+  @@index([goal])
+  @@index([gymName])
+}
+
+model Allergen {
+  id       String            @id @default(uuid())
+  name     String            @unique // e.g. Milk, Peanut, Egg, Soy
+  customers CustomerAllergy[]
+  products  ProductAllergen[]
+}
+
+model CustomerAllergy {
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  allergenId String
+  allergen   Allergen @relation(fields: [allergenId], references: [id], onDelete: Cascade)
+
+  @@id([customerId, allergenId])
+}
+
+// ---------------------------------------------------------
+// STAFF / ADMIN
+// ---------------------------------------------------------
+
+model Staff {
+  id         String   @id @default(uuid())
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  position   String? // e.g. Manager, Kitchen Staff
+  // Empty array = Owner/full Admin access to every department — same
+  // convention as before, just expressed as "no departments listed"
+  // rather than null, so a staff member can now hold MORE than one
+  // department at once (e.g. Operations + Supply Chain for someone who
+  // genuinely runs both the shop floor and the stockroom). Access is
+  // to the UNION of everything listed — enforced by DepartmentGuard.
+  departments StaffDepartment[] @default([])
+  createdAt  DateTime @default(now())
+}
+
+// ---------------------------------------------------------
+// DELIVERY
+// ---------------------------------------------------------
+
+model DeliveryPerson {
+  id           String   @id @default(uuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name         String
+  vehicleInfo  String?
+  isOnDuty     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  deliveryOrders DeliveryOrder[]
+}
+
+// ---------------------------------------------------------
+// PRODUCT CATALOG
+// ---------------------------------------------------------
+
+model ProductCategory {
+  id       String    @id @default(uuid())
+  name     String    @unique // Protein Shakes, Diet Food, Snacks...
+  slug     String    @unique
+  products Product[]
+}
+
+model Product {
+  id           String   @id @default(uuid())
+  categoryId   String
+  category     ProductCategory @relation(fields: [categoryId], references: [id])
+  name         String
+  slug         String   @unique
+  description  String?
+  basePriceRs  Decimal  @db.Decimal(8, 2)
+  isCustomisable Boolean @default(false)
+  isVeg        Boolean  @default(true)
+  isActive     Boolean  @default(true)
+  imageUrl     String?
+  labTested    Boolean  @default(false)
+  // Shown to customers as "~15 min" on the menu — helps set expectations,
+  // especially for customized items that take longer to prep.
+  prepTimeMinutes Int?
+  // Non-ingredient cost per unit (cup, lid, straw, etc.) — added on top of
+  // the recipe's computed food cost to get a fuller contribution margin.
+  packagingCostRs Decimal? @db.Decimal(8, 2)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  nutrition      Nutrition?
+  allergens      ProductAllergen[]
+  ingredients    ProductIngredient[]
+  addonOptions   ProductAddon[]
+  orderItems     OrderItem[]
+  favourites     Favourite[]
+  reviews        Review[]
+  stockMovements StockMovement[]
+  membershipItems MembershipItem[]
+}
+
+model ProductAllergen {
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  allergenId String
+  allergen   Allergen @relation(fields: [allergenId], references: [id], onDelete: Cascade)
+
+  @@id([productId, allergenId])
+}
+
+model Ingredient {
+  id       String   @id @default(uuid())
+  name     String   @unique
+  unit     String  // g, ml, pcs
+  // Running "current cost" estimate — last price paid, updated whenever a
+  // new Purchase line comes in for this ingredient. Used to compute
+  // product food cost; null means no purchase has ever recorded a price
+  // (e.g. an ingredient only ever added via the old manual restock flow).
+  costPerUnitRs Decimal? @db.Decimal(10, 4)
+  products ProductIngredient[]
+  stock    InventoryItem?
+  batches  IngredientBatch[]
+  purchaseLines PurchaseLine[]
+  purchaseRequests PurchaseRequest[]
+}
+
+model Supplier {
+  id           String   @id @default(uuid())
+  name         String
+  phone        String?
+  address      String?
+  gstNumber    String?
+  paymentTerms String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  purchases    Purchase[]
+}
+
+/// One supplier invoice/delivery — can cover several ingredients at once.
+enum PurchaseRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  FULFILLED
+}
+
+/// The REQUEST → APPROVAL step that precedes an actual Purchase
+/// (invoice/delivery) record above — a Supply Chain staff member
+/// raises this when something's running low; it only becomes real
+/// spending once approved. Deliberately a separate model from
+/// Purchase rather than a status field on it, since a request has no
+/// invoice/cost/delivery date yet — those only exist once it's
+/// actually fulfilled.
+model PurchaseRequest {
+  id               String                @id @default(uuid())
+  ingredientId     String
+  ingredient       Ingredient            @relation(fields: [ingredientId], references: [id])
+  requestedQty     Decimal               @db.Decimal(10, 2)
+  note             String?
+  requestedByUserId String
+  requestedByUser  User                  @relation("PurchaseRequestsRequested", fields: [requestedByUserId], references: [id])
+  status           PurchaseRequestStatus @default(PENDING)
+  approvedByUserId String?
+  approvedByUser   User?                 @relation("PurchaseRequestsApproved", fields: [approvedByUserId], references: [id])
+  decidedAt        DateTime?
+  rejectionReason  String?
+  // Set once the approved request is actually fulfilled — links to the
+  // real Purchase record created when goods arrive, closing the loop
+  // from request through to the existing goods-received flow.
+  fulfilledPurchaseId String?           @unique
+  fulfilledPurchase   Purchase?         @relation(fields: [fulfilledPurchaseId], references: [id])
+  createdAt        DateTime              @default(now())
+
+  @@index([status])
+}
+
+model Purchase {
+  id            String   @id @default(uuid())
+  supplierId    String
+  supplier      Supplier @relation(fields: [supplierId], references: [id])
+  invoiceNumber String?
+  purchaseDate  DateTime @default(now())
+  totalAmountRs Decimal  @db.Decimal(10, 2)
+  createdAt     DateTime @default(now())
+  lines         PurchaseLine[]
+  fulfilledRequest PurchaseRequest?
+}
+
+/// One ingredient line within a Purchase — creates an IngredientBatch and updates Ingredient.costPerUnitRs on creation.
+model PurchaseLine {
+  id           String    @id @default(uuid())
+  purchaseId   String
+  purchase     Purchase  @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  ingredientId String
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id])
+  quantity     Decimal   @db.Decimal(10, 2)
+  unitCostRs   Decimal   @db.Decimal(10, 4)
+  batchNumber  String?
+  expiryDate   DateTime?
+}
+
+/// A single delivery/lot of an ingredient — powers FEFO (First Expiry,
+/// First Out) consumption and expiry warnings. InventoryItem.quantityOnHand
+/// remains the fast-lookup running total (kept in sync on every batch
+/// change); this table is the detailed ledger behind it.
+model IngredientBatch {
+  id                String    @id @default(uuid())
+  ingredientId      String
+  ingredient        Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  batchNumber       String
+  supplierName      String?
+  quantityReceived  Decimal   @db.Decimal(10, 2)
+  quantityRemaining Decimal   @db.Decimal(10, 2)
+  expiryDate        DateTime?
+  receivedAt        DateTime  @default(now())
+  movements         StockMovement[]
+
+  @@unique([ingredientId, batchNumber])
+  @@index([ingredientId, expiryDate])
+}
+
+model ProductIngredient {
+  productId    String
+  product      Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  ingredientId String
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  quantity     Decimal    @db.Decimal(8, 2) // quantity per single unit of product
+
+  @@id([productId, ingredientId])
+}
+
+model ProductAddon {
+  id          String  @id @default(uuid())
+  productId   String
+  product     Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  group       AddonGroup @default(ADDON)
+  name        String  // e.g. Extra scoop, Banana, Dates
+  isRequired  Boolean @default(false) // required groups (Base/Flavour/Liquid) force a single selection
+  extraPriceRs Decimal @db.Decimal(8, 2) @default(0)
+  extraProteinG Decimal? @db.Decimal(6, 2)
+  extraCalories Int?
+
+  orderItemAddons OrderItemAddon[]
+}
+
+// Nutrition per single base unit of a product (before add-ons)
+model Nutrition {
+  id           String  @id @default(uuid())
+  productId    String  @unique
+  product      Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  calories     Int
+  proteinG     Decimal @db.Decimal(6, 2)
+  carbsG       Decimal @db.Decimal(6, 2)
+  fatG         Decimal @db.Decimal(6, 2)
+  fibreG       Decimal @db.Decimal(6, 2)
+  calciumMg    Decimal? @db.Decimal(6, 2)
+  ironMg       Decimal? @db.Decimal(6, 2)
+  potassiumMg  Decimal? @db.Decimal(6, 2)
+  labVerified  Boolean @default(false)
+  labReportUrl String?
+  testedAt     DateTime?
+}
+
+// ---------------------------------------------------------
+// ORDERS
+// ---------------------------------------------------------
+
+model Order {
+  id              String          @id @default(uuid())
+  // A genuine, gapless-under-normal-use sequential number, generated by
+  // Postgres itself (not application code) — this is what orderNumber
+  // below is actually derived from. Using a database-level
+  // autoincrement is the safe way to guarantee two orders created at
+  // the exact same moment can never collide, without any manual
+  // locking in application code; a naive "count existing orders + 1"
+  // approach has a real race condition under concurrent checkouts.
+  sequenceNumber  Int             @default(autoincrement())
+  orderNumber     String          @unique // e.g. PP0001 — sequential, not random (see sequenceNumber above)
+  // Client-generated key for offline POS sync — lets a sale queued while
+  // offline be safely retried without ever creating a duplicate order,
+  // even if the sync fires twice (e.g. a network flap right after
+  // connectivity returns). Null for every normal online-submitted order.
+  idempotencyKey  String?         @unique
+  customerId      String
+  customer        Customer        @relation(fields: [customerId], references: [id])
+  channel         OrderChannel
+  fulfillmentType FulfillmentType
+  status          OrderStatus     @default(RECEIVED)
+  subtotalRs      Decimal         @db.Decimal(10, 2)
+  discountRs      Decimal         @db.Decimal(10, 2) @default(0)
+  totalRs         Decimal         @db.Decimal(10, 2)
+  // Distance-based delivery zone fee, added on TOP of totalRs for what
+  // the customer actually pays — deliberately NOT folded into totalRs
+  // itself, since totalRs is also what loyalty points and coupon
+  // minimums are computed from, and a delivery fee shouldn't earn
+  // points or count toward a coupon's minimum order value. Always 0
+  // for PICKUP/DINE_IN orders, or when no zone/shop-location is
+  // configured (free delivery, exactly as before this feature existed).
+  deliveryFeeRs   Decimal         @db.Decimal(8, 2) @default(0)
+  totalProteinG   Decimal         @db.Decimal(7, 2) @default(0)
+  totalCalories   Int             @default(0)
+  couponId        String?
+  coupon          Coupon?         @relation(fields: [couponId], references: [id])
+  // Set only for counter/POS sales — which admin/staff account rang it up.
+  // Null for every self-service order (website, app, membership).
+  processedByUserId String?
+  processedByUser   User?         @relation(fields: [processedByUserId], references: [id])
+  // Running total of completed refunds against this order — kept in sync
+  // by RefundsService so "how much is left refundable" never needs to
+  // sum the Refund table on every check.
+  refundedRs      Decimal         @db.Decimal(10, 2) @default(0)
+  cancellationReason String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  items          OrderItem[]
+  payment        Payment?
+  deliveryOrder  DeliveryOrder?
+  rewardRedemptionsApplied RewardRedemption[]
+  nutritionLogs  NutritionLog[]
+  pointsEntries  PointsLedgerEntry[]
+  refunds        Refund[]
+  attendance     Attendance[]
+
+  @@index([customerId, createdAt])
+  @@index([status])
+  @@index([processedByUserId])
+}
+
+model OrderItem {
+  id            String   @id @default(uuid())
+  orderId       String
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId     String
+  product       Product  @relation(fields: [productId], references: [id])
+  quantity      Int      @default(1)
+  unitPriceRs   Decimal  @db.Decimal(8, 2)
+  lineTotalRs   Decimal  @db.Decimal(8, 2)
+  proteinG      Decimal  @db.Decimal(6, 2) // computed incl. addons
+  calories      Int
+  // e.g. "no ice", "extra hot", "cut in half" — free text, shown to
+  // kitchen staff on the KDS and printed on receipts. Optional; most
+  // orders won't need one.
+  specialInstructions String?
+
+  addons OrderItemAddon[]
+}
+
+model OrderItemAddon {
+  id          String       @id @default(uuid())
+  orderItemId String
+  orderItem   OrderItem    @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  addonId     String
+  addon       ProductAddon @relation(fields: [addonId], references: [id])
+  priceRs     Decimal      @db.Decimal(8, 2)
+}
+
+model Payment {
+  id            String        @id @default(uuid())
+  orderId       String        @unique
+  order         Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  method        PaymentMethod
+  status        PaymentStatus @default(PENDING)
+  amountRs      Decimal       @db.Decimal(10, 2)
+  transactionRef String?
+  paidAt        DateTime?
+  createdAt     DateTime      @default(now())
+}
+
+enum RefundMethod {
+  CASH     // handed back physically at the counter, admin confirms once given
+  RAZORPAY // reversed to the original payment method via Razorpay's refund API
+  WALLET   // credited to the customer's in-app wallet, instantly — no gateway call, no counter visit needed
+}
+
+enum RefundStatus {
+  PENDING   // CASH refunds start here until an admin confirms it was handed back;
+            // RAZORPAY refunds start here until Razorpay's API confirms it
+  COMPLETED
+  FAILED
+}
+
+model Refund {
+  id                String       @id @default(uuid())
+  orderId           String
+  order             Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  amountRs          Decimal      @db.Decimal(10, 2)
+  reason            String
+  method            RefundMethod
+  status            RefundStatus @default(PENDING)
+  razorpayRefundId  String?
+  // Null when a customer's own cancellation triggered this automatically —
+  // not every refund is admin-initiated.
+  initiatedByUserId String?
+  initiatedByUser   User?        @relation(fields: [initiatedByUserId], references: [id])
+  createdAt         DateTime     @default(now())
+  completedAt       DateTime?
+
+  @@index([orderId])
+}
+
+model DeliveryOrder {
+  id               String         @id @default(uuid())
+  orderId          String         @unique
+  order            Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  deliveryPersonId String?
+  deliveryPerson   DeliveryPerson? @relation(fields: [deliveryPersonId], references: [id])
+  // Set once, after delivery — a customer thanking their rider with a
+  // few extra rupees, tracked here rather than as a real second
+  // payment, since it's paid out of an existing wallet balance rather
+  // than run through a separate gateway charge for what's usually a
+  // small amount.
+  tipAmountRs      Decimal?        @default(0) @db.Decimal(8, 2)
+  address          String?
+  // Real coordinates for the delivery destination — captured from the
+  // customer's browser (with permission) at checkout. Optional: if a
+  // customer declines location access or their browser doesn't support
+  // it, delivery still works exactly as before, just without a live
+  // ETA — the address string alone is still enough for the rider.
+  deliveryLat      Float?
+  deliveryLng      Float?
+  contactPhone     String
+  assignedAt       DateTime?
+  pickedUpAt       DateTime?
+  outForDeliveryAt DateTime?
+  arrivedAt        DateTime?
+  deliveredAt      DateTime?
+  deliveryInstructions String?
+  // A 4-digit code the customer shows/reads to the rider at handover —
+  // required to mark DELIVERED. This is what actually reduces "it says
+  // delivered but I never got it" disputes: proof the code exchanged
+  // hands, not just a rider's tap on a button.
+  deliveryOtp      String?
+  failureReason    DeliveryFailureReason?
+  failureNote      String?
+  failedAt         DateTime?
+  // Live tracking — only meaningful while the delivery is actively out.
+  // Persisted (not just broadcast over the socket) so a customer who
+  // opens/refreshes the tracking page mid-delivery still sees the last
+  // known position immediately, before the next live ping arrives.
+  lastLat          Float?
+  lastLng          Float?
+  lastLocationAt   DateTime?
+  rating           DeliveryRating?
+
+  @@index([deliveryPersonId])
+}
+
+// Singleton row (id is always "default") controlling shop open/closed
+// status shown across the site.
+model ShopSettings {
+  id              String   @id @default("default")
+  isOpen          Boolean  @default(true)
+  opensAt         String   @default("07:00")
+  closesAt        String   @default("22:00")
+  closureMessage  String?
+  // ---------------------------------------------------------
+  // WHITE-LABEL BRANDING — the whole point of this being a
+  // template rather than a one-off build. Admin-editable via
+  // /admin/settings; everything downstream (nav, footer, login
+  // pages, e-bills, OTP messages, the AI assistant's own system
+  // prompt) reads from here instead of a hardcoded name. Colors
+  // default to the original Protein Panda palette so an
+  // unconfigured deployment looks identical to before — nothing
+  // changes visually until an admin actually customizes it.
+  // ---------------------------------------------------------
+  businessName       String  @default("Protein Panda")
+  tagline            String? @default("Fuel your fitness journey")
+  logoUrl            String?
+  primaryColorHex    String  @default("#6F8615")
+  accentColorHex     String  @default("#82A51B")
+  backgroundColorHex String  @default("#F3F0E7")
+  // Contact / footer / WhatsApp ordering info — editable by admin, shown
+  // site-wide (footer, WhatsApp order button, "Find Us").
+  contactPhone    String?
+  contactEmail    String?
+  whatsappNumber  String? // digits only, e.g. "919876543210" (no + or spaces) for wa.me links
+  address         String?
+  mapsUrl         String? // Google Maps link for "Get Directions"
+  instagramUrl    String?
+  facebookUrl     String?
+  youtubeUrl      String?
+  // Empty array = serviceability checking is off entirely (every
+  // pincode accepted) — the default, so nothing changes for a shop
+  // that never configures this. Once an admin adds even one pincode,
+  // delivery orders are checked against this list; PICKUP orders are
+  // never affected regardless, since there's no delivery distance
+  // involved in a pickup at all.
+  deliverablePincodes String[] @default([])
+  // The shop's own fixed location — the origin point for computing a
+  // customer's real distance for zone-based delivery fees. Optional:
+  // without it, zone-based pricing simply can't run (no origin to
+  // measure from), and delivery falls back to free/no fee, same as
+  // before this feature existed — never a hard failure.
+  shopLat         Float?
+  shopLng         Float?
+  // FSSAI license number — legally one per food business (not per dish),
+  // required by Indian food safety law to be displayed to customers.
+  fssaiNumber     String?
+  updatedAt       DateTime @updatedAt
+}
+
+/// Distance-based delivery pricing tiers, checked nearest-first: the
+/// smallest maxDistanceKm that still covers the customer's actual
+/// distance from the shop is the zone that applies. A customer beyond
+/// every zone's maxDistanceKm simply isn't deliverable — same "outside
+/// our range" outcome the pincode allow-list already produces, just
+/// computed from real distance instead of a flat postcode list.
+model DeliveryZone {
+  id                String   @id @default(uuid())
+  name              String   // e.g. "Nearby", "Standard", "Extended"
+  maxDistanceKm     Decimal  @db.Decimal(6, 2)
+  feeRs             Decimal  @db.Decimal(8, 2)
+  estimatedMinutes  Int?
+  isActive          Boolean  @default(true)
+  sortOrder         Int      @default(0)
+  createdAt         DateTime @default(now())
+
+  @@index([isActive, maxDistanceKm])
+}
+
+model Coupon {
+  id            String   @id @default(uuid())
+  code          String   @unique
+  description   String?
+  discountRs    Decimal? @db.Decimal(8, 2)
+  discountPct   Decimal? @db.Decimal(5, 2)
+  validFrom     DateTime
+  validUntil    DateTime
+  usageLimit    Int?
+  timesUsed     Int      @default(0)
+  isActive      Boolean  @default(true)
+  // Real coupon rules a business actually needs, previously missing
+  // entirely: minOrderRs stops "₹100 off" being used on a ₹20 order;
+  // maxUsesPerCustomer stops one person reusing the same code
+  // repeatedly (usageLimit alone only caps the coupon's TOTAL uses
+  // across everyone, not per person); firstOrderOnly powers a genuine
+  // "new customer" welcome offer rather than one anybody can claim
+  // indefinitely.
+  minOrderRs        Decimal? @db.Decimal(8, 2)
+  maxUsesPerCustomer Int?
+  firstOrderOnly     Boolean  @default(false)
+
+  orders Order[]
+}
+
+// ---------------------------------------------------------
+// NUTRITION TRACKING
+// ---------------------------------------------------------
+
+model NutritionLog {
+  id         String   @id @default(uuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  orderId    String?
+  order      Order?   @relation(fields: [orderId], references: [id])
+  loggedAt   DateTime @default(now())
+  proteinG   Decimal  @db.Decimal(6, 2)
+  calories   Int
+  carbsG     Decimal  @db.Decimal(6, 2)
+  fatG       Decimal  @db.Decimal(6, 2)
+  fibreG     Decimal  @db.Decimal(6, 2)
+  source     String   @default("ORDER") // ORDER, MANUAL_ENTRY
+
+  @@index([customerId, loggedAt])
+}
+
+// A long-running cumulative goal, e.g. "30,000g protein challenge"
+model ProteinGoalRun {
+  id            String    @id @default(uuid())
+  customerId    String
+  customer      Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  targetProteinG Decimal  @db.Decimal(10, 2)
+  progressG      Decimal  @db.Decimal(10, 2) @default(0)
+  startedAt      DateTime @default(now())
+  completedAt    DateTime?
+  rewardGivenId  String?
+
+  @@index([customerId, completedAt])
+}
+
+// ---------------------------------------------------------
+// STREAKS
+// ---------------------------------------------------------
+
+enum AttendanceVerificationMethod {
+  POS_PURCHASE
+  QR_CHECKIN
+  STAFF_VERIFIED
+}
+
+/// A raw log of qualifying visits — deliberately separate from Streak.
+/// Streak cares about CONSECUTIVE days; this cares about total distinct
+/// days visited within a calendar month, which is what the monthly
+/// 15-visit challenge actually counts (visiting Mon/Wed/Fri/Sun all
+/// count toward 15 even though they're not consecutive). One row per
+/// customer per calendar day — the unique constraint below is what
+/// "prevent duplicate attendance on the same day" actually means in
+/// practice, not just a convention documented elsewhere.
+model Attendance {
+  id                 String                        @id @default(uuid())
+  customerId         String
+  customer           Customer                      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  visitDate          DateTime                      @db.Date
+  verificationMethod AttendanceVerificationMethod   @default(POS_PURCHASE)
+  orderId            String?
+  order              Order?                        @relation(fields: [orderId], references: [id])
+  createdAt          DateTime                      @default(now())
+
+  @@unique([customerId, visitDate])
+  @@index([customerId])
+}
+
+model Streak {
+  id                 String   @id @default(uuid())
+  customerId         String   @unique
+  customer           Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  currentStreakDays  Int      @default(0)
+  longestStreakDays  Int      @default(0)
+  lastQualifyingDate DateTime?
+  updatedAt          DateTime @updatedAt
+}
+
+model StreakMilestoneReward {
+  id          String @id @default(uuid())
+  streakDays  Int    @unique // 7, 14, 30, 60, 100
+  description String
+  rewardType  RewardType
+  rewardValue Decimal? @db.Decimal(8, 2)
+}
+
+// ---------------------------------------------------------
+// GAMES
+// ---------------------------------------------------------
+
+model Game {
+  id          String   @id @default(uuid())
+  name        String   @unique // Hanging Challenge, Plank, Push-ups...
+  description String?
+  isActive    Boolean  @default(true)
+
+  levels   GameLevel[]
+  attempts GameAttempt[]
+}
+
+model GameLevel {
+  id           String @id @default(uuid())
+  gameId       String
+  game         Game   @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  levelNumber  Int    // 1..4
+  levelName    String // Beginner, Intermediate, Advanced, Pro
+  targetMetric Decimal @db.Decimal(8, 2) // e.g. seconds held, reps
+  pointsAward  Int
+
+  @@unique([gameId, levelNumber])
+
+  attempts GameAttempt[]
+}
+
+model GameAttempt {
+  id           String    @id @default(uuid())
+  customerId   String
+  customer     Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  gameId       String
+  game         Game      @relation(fields: [gameId], references: [id])
+  levelId      String?
+  level        GameLevel? @relation(fields: [levelId], references: [id])
+  resultMetric Decimal   @db.Decimal(8, 2) // achieved value
+  didWin       Boolean   @default(false)
+  loggedByStaffId String? // staff who verified in-shop
+  playedAt     DateTime  @default(now())
+
+  @@index([customerId, playedAt])
+  @@index([gameId])
+}
+
+// ---------------------------------------------------------
+// POINTS
+// ---------------------------------------------------------
+
+model PointsBalance {
+  customerId String   @id
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  balance    Int      @default(0)
+  updatedAt  DateTime @updatedAt
+}
+
+model PointsLedgerEntry {
+  id         String            @id @default(uuid())
+  customerId String
+  customer   Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  sourceType PointsSourceType
+  points     Int               // positive = earned, negative = redeemed
+  orderId    String?
+  order      Order?            @relation(fields: [orderId], references: [id])
+  note       String?
+  createdAt  DateTime          @default(now())
+
+  @@index([customerId, createdAt])
+}
+
+// ---------------------------------------------------------
+// REWARDS
+// ---------------------------------------------------------
+
+model Reward {
+  id           String     @id @default(uuid())
+  name         String
+  description  String?
+  type         RewardType
+  pointsCost   Int
+  valueRs      Decimal?   @db.Decimal(8, 2)
+  isActive     Boolean    @default(true)
+
+  redemptions RewardRedemption[]
+}
+
+model RewardRedemption {
+  id         String   @id @default(uuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  rewardId   String
+  reward     Reward   @relation(fields: [rewardId], references: [id])
+  pointsSpent Int
+  redeemedAt DateTime @default(now())
+  usedAt     DateTime?
+  // Which order this redemption's discount was actually applied to —
+  // set when a POS sale (or online checkout) consumes it. Distinct from
+  // usedAt: usedAt marks the moment of use, orderId is what it was used
+  // ON, so admin/support can trace "which sale did this ₹50-off get
+  // applied to" if a customer disputes a total.
+  orderId    String?
+  order      Order?   @relation(fields: [orderId], references: [id])
+
+  @@index([customerId, redeemedAt])
+  @@index([customerId, usedAt])
+}
+
+// ---------------------------------------------------------
+// INVENTORY
+// ---------------------------------------------------------
+
+model InventoryItem {
+  id           String   @id @default(uuid())
+  ingredientId String   @unique
+  ingredient   Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  quantityOnHand Decimal @db.Decimal(10, 2)
+  reorderLevel Decimal  @db.Decimal(10, 2)
+  updatedAt    DateTime @updatedAt
+
+  movements StockMovement[]
+}
+
+model StockMovement {
+  id             String            @id @default(uuid())
+  inventoryItemId String
+  inventoryItem   InventoryItem    @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  productId       String?
+  product         Product?         @relation(fields: [productId], references: [id])
+  // Which specific batch this movement drew from/added to — null for
+  // legacy movements or aggregate-only adjustments where no single batch
+  // applies (e.g. refund restocks, which don't re-attribute stock to its
+  // original batch's expiry — see InventoryService.restockForOrder).
+  batchId         String?
+  batch           IngredientBatch? @relation(fields: [batchId], references: [id])
+  type            StockMovementType
+  quantity        Decimal          @db.Decimal(10, 2) // signed
+  note            String?
+  createdAt       DateTime         @default(now())
+
+  @@index([inventoryItemId, createdAt])
+}
+
+// ---------------------------------------------------------
+// MISC — REVIEWS, FAVOURITES, NOTIFICATIONS
+// ---------------------------------------------------------
+
+model Review {
+  id         String   @id @default(uuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  rating     Int      // 1-5
+  comment    String?
+  // Up to a few photos a customer attaches to their review — the
+  // actual image bytes live in Cloudinary (same signed-upload flow
+  // already built for product photos), this just stores the resulting
+  // URLs. A plain string array, not a separate table, since a review's
+  // photos have no independent existence of their own — they only
+  // ever make sense attached to the one review they were uploaded for.
+  photoUrls  String[] @default([])
+  createdAt  DateTime @default(now())
+
+  @@index([productId])
+}
+
+enum AddressLabel {
+  HOME
+  WORK
+  OTHER
+}
+
+/**
+ * A real, revocable login session — not just a stateless JWT. Each
+ * login (OTP or Google) creates one of these, and its id is embedded
+ * in the JWT itself as `sessionId`. JwtStrategy checks revokedAt on
+ * every request, the same real-time pattern already used for
+ * User.isActive — this is what actually makes "log out this device"
+ * possible; without it, a JWT stays valid until it naturally expires
+ * (7 days) no matter what a person does in their account settings.
+ */
+/**
+ * One row per browser/device that's granted notification permission —
+ * a customer with the site open on both their phone and laptop has
+ * two of these, and gets the push on both. Deliberately separate from
+ * Session above: a push subscription can genuinely outlive a login
+ * session (the browser stays subscribed even after logging out, until
+ * explicitly revoked or the browser itself drops it), so tying the two
+ * together would mean losing notification delivery on every routine
+ * re-login.
+ */
+model PushSubscription {
+  id         String   @id @default(uuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  // The endpoint URL is what uniquely identifies a specific browser's
+  // subscription (assigned by the browser's push service — Google's
+  // FCM, Mozilla's, etc.) — re-subscribing the same browser naturally
+  // reuses the same endpoint, so this unique constraint is what makes
+  // that an update rather than a duplicate row.
+  endpoint   String   @unique
+  p256dh     String
+  auth       String
+  createdAt  DateTime @default(now())
+
+  @@index([customerId])
+}
+
+/**
+ * A real, queryable trail of who changed what — "Product price ₹180 →
+ * ₹220, changed by Store Manager at 08:21" is the canonical example
+ * this exists for. Deliberately generic (entityType/entityId/action as
+ * plain strings, not a rigid enum per entity) so recording a new kind
+ * of change later never requires a schema migration — only the
+ * specific call sites that choose to log something need to change.
+ */
+model AuditLog {
+  id          String   @id @default(uuid())
+  actorUserId String
+  actor       User     @relation(fields: [actorUserId], references: [id])
+  actorRole   Role
+  // e.g. "PRODUCT_PRICE_CHANGED", "ORDER_REFUNDED", "STAFF_DEACTIVATED"
+  action      String
+  entityType  String
+  entityId    String?
+  // A ready-to-display one-liner ("Changed price from ₹180 to ₹220")
+  // so the admin UI never has to reconstruct sentences from raw
+  // before/after values — those still live in metadata for anything
+  // that needs the structured data instead.
+  summary     String
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([actorUserId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+model Session {
+  id         String    @id @default(uuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // A short, human-readable description parsed from the request's
+  // User-Agent at login time (e.g. "Chrome on Windows", "Safari on
+  // iPhone") — good enough for a person to recognize which device is
+  // which without needing full device fingerprinting.
+  deviceInfo String?
+  createdAt  DateTime  @default(now())
+  revokedAt  DateTime?
+
+  @@index([userId])
+}
+
+model Wallet {
+  id         String   @id @default(uuid())
+  customerId String   @unique
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  balanceRs  Decimal  @default(0) @db.Decimal(10, 2)
+  updatedAt  DateTime @updatedAt
+
+  transactions WalletTransaction[]
+}
+
+enum WalletTransactionType {
+  REFUND            // a refund credited here instead of the original payment method
+  ORDER_PAYMENT     // spent on an order
+  TIP               // a customer tipping their delivery rider
+  ADMIN_ADJUSTMENT  // a manual credit/debit an admin made, with a required reason
+}
+
+model WalletTransaction {
+  id         String                 @id @default(uuid())
+  walletId   String
+  wallet     Wallet                 @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  // Positive = credit (money added), negative = debit (money spent) —
+  // one signed column, not separate credit/debit fields, so a running
+  // balance is always a simple sum with no risk of a credit
+  // accidentally being read as a debit or vice versa.
+  amountRs   Decimal                @db.Decimal(10, 2)
+  type       WalletTransactionType
+  orderId    String?
+  refundId   String?
+  note       String?
+  createdAt  DateTime               @default(now())
+
+  @@index([walletId])
+}
+
+model Address {
+  id           String       @id @default(uuid())
+  customerId   String
+  customer     Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  label        AddressLabel @default(HOME)
+  // A free-text nickname for OTHER-labeled addresses ("Mom's place") —
+  // HOME/WORK are self-explanatory and don't need one.
+  nickname     String?
+  addressLine  String
+  // Optional — used only for the delivery serviceability check (see
+  // ShopSettings.deliverablePincodes). An address without one just
+  // never gets checked, same as when checking is off entirely.
+  pincode      String?
+  phone        String
+  instructions String?
+  isDefault    Boolean      @default(false)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@index([customerId])
+}
+
+model Favourite {
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@id([customerId, productId])
+}
+
+// ---------------------------------------------------------
+// MEMBERSHIPS (weekly/monthly recurring meal plans)
+// ---------------------------------------------------------
+
+enum MembershipStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+  COMPLETED
+}
+
+model Membership {
+  id             String           @id @default(uuid())
+  customerId     String
+  customer       Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  totalDays      Int              // e.g. 7 for weekly, 30 for monthly
+  daysCompleted  Int              @default(0)
+  scheduledTime  String           // "HH:MM", 24-hour, matched by the daily cron
+  fulfillmentType FulfillmentType
+  // Required only for DELIVERY plans — without these, the daily cron
+  // can never generate a delivery order (OrdersService requires them).
+  deliveryAddress      String?
+  deliveryContactPhone String?
+  status         MembershipStatus @default(ACTIVE)
+  startDate      DateTime         @default(now())
+  lastOrderDate  DateTime?        // last calendar date an order was generated for
+  skipNextDate   DateTime?        // if set, the cron skips generating for that one date
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  items MembershipItem[]
+
+  @@index([customerId, status])
+}
+
+model MembershipItem {
+  id           String     @id @default(uuid())
+  membershipId String
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  productId    String
+  product      Product    @relation(fields: [productId], references: [id])
+  quantity     Int        @default(1)
+}
+
+// ---------------------------------------------------------
+// ACHIEVEMENTS
+// ---------------------------------------------------------
+
+model AchievementDefinition {
+  id           String   @id @default(uuid())
+  code         String   @unique // e.g. FIRST_ORDER, STREAK_7, ORDERS_50
+  name         String
+  description  String
+  icon         String   @default("🏆")
+  pointsReward Int      @default(0)
+
+  unlocks CustomerAchievement[]
+}
+
+model CustomerAchievement {
+  id            String                @id @default(uuid())
+  customerId    String
+  customer      Customer              @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  achievementId String
+  achievement   AchievementDefinition @relation(fields: [achievementId], references: [id])
+  unlockedAt    DateTime              @default(now())
+
+  @@unique([customerId, achievementId])
+  @@index([customerId])
+}
+
+// ---------------------------------------------------------
+// DELIVERY RATINGS (kept separate from product/food reviews)
+// ---------------------------------------------------------
+
+model DeliveryRating {
+  id              String        @id @default(uuid())
+  deliveryOrderId String        @unique
+  deliveryOrder   DeliveryOrder @relation(fields: [deliveryOrderId], references: [id], onDelete: Cascade)
+  customerId      String
+  rating          Int // 1-5
+  tags            String[] // e.g. ["Fast", "Polite", "Professional", "Good handling"]
+  comment         String?
+  createdAt       DateTime      @default(now())
+}
+
+// ---------------------------------------------------------
+// FOOD SAFETY — internal daily compliance checklist, never
+// customer-visible. Kitchen/admin staff log opening/closing
+// checks, temperatures, and sanitization each day; this is
+// the audit trail if a health inspector ever asks for one.
+// ---------------------------------------------------------
+
+enum FoodSafetyCategory {
+  OPENING
+  CLOSING
+  CLEANING
+  SANITIZATION
+  HYGIENE
+  TEMPERATURE
+  OTHER
+}
+
+/// Admin-editable checklist definition — what gets checked each day.
+model FoodSafetyChecklistItem {
+  id                  String             @id @default(uuid())
+  label               String
+  category            FoodSafetyCategory
+  sortOrder           Int                @default(0)
+  isActive            Boolean            @default(true)
+  // Temperature items (fridge/freezer) record a numeric reading instead
+  // of a plain checkbox — min/max define the safe range for automatic
+  // out-of-range flagging.
+  requiresTemperature Boolean            @default(false)
+  minTempC            Decimal?           @db.Decimal(5, 2)
+  maxTempC            Decimal?           @db.Decimal(5, 2)
+  entries             FoodSafetyLogEntry[]
+}
+
+/// One submission — a shift's worth of checklist entries, timestamped and attributed.
+model FoodSafetyLog {
+  id                String   @id @default(uuid())
+  logDate           DateTime @default(now())
+  shiftLabel        String? // e.g. "Opening", "Midday", "Closing"
+  submittedByUserId String
+  submittedByUser   User     @relation(fields: [submittedByUserId], references: [id])
+  createdAt         DateTime @default(now())
+  entries           FoodSafetyLogEntry[]
+
+  @@index([logDate])
+}
+
+model FoodSafetyLogEntry {
+  id              String                   @id @default(uuid())
+  logId           String
+  log             FoodSafetyLog            @relation(fields: [logId], references: [id], onDelete: Cascade)
+  checklistItemId String
+  checklistItem   FoodSafetyChecklistItem  @relation(fields: [checklistItemId], references: [id])
+  isCompleted     Boolean                  @default(false)
+  temperatureC    Decimal?                 @db.Decimal(5, 2)
+  // Computed and stored at submission time (not just on read) so a
+  // compliance review can query "show every out-of-range reading ever"
+  // directly, without re-evaluating every entry against its item's
+  // current min/max (which could have changed since).
+  isOutOfRange    Boolean                  @default(false)
+  note            String?
+
+  @@index([logId])
+}
+
+// ---------------------------------------------------------
+// CASH RECONCILIATION — POS sales ≠ cash actually in the
+// drawer. One shift = one drawer session: opened with a
+// counted float, closed with a counted total, reconciled
+// against what should be there based on real CASH
+// sales/refunds/expenses recorded during the window.
+// ---------------------------------------------------------
+
+enum CashShiftStatus {
+  OPEN
+  CLOSED
+}
+
+// ---------------------------------------------------------
+// STORE OPERATIONS — opening/closing checklists distinct from
+// FoodSafetyChecklistItem above (which is specifically food-safety
+// concerns like temperature/cleaning). This covers the broader
+// day-to-day operational checks: shop opened, equipment checked, POS
+// operational, cash entered, staff attendance verified, and so on —
+// same proven item/log/entry pattern as the food safety checklist,
+// applied to a different, broader set of concerns.
+// ---------------------------------------------------------
+
+enum StoreChecklistType {
+  OPENING
+  CLOSING
+}
+
+model StoreChecklistItem {
+  id        String             @id @default(uuid())
+  label     String
+  type      StoreChecklistType
+  sortOrder Int                @default(0)
+  isActive  Boolean            @default(true)
+  entries   StoreChecklistLogEntry[]
+}
+
+/// One submission — a day's opening or closing checklist, timestamped and attributed.
+model StoreChecklistLog {
+  id                String             @id @default(uuid())
+  logDate           DateTime           @default(now())
+  type              StoreChecklistType
+  submittedByUserId String
+  submittedByUser   User               @relation(fields: [submittedByUserId], references: [id])
+  createdAt         DateTime           @default(now())
+  entries           StoreChecklistLogEntry[]
+
+  @@index([logDate, type])
+}
+
+model StoreChecklistLogEntry {
+  id              String              @id @default(uuid())
+  logId           String
+  log             StoreChecklistLog   @relation(fields: [logId], references: [id], onDelete: Cascade)
+  checklistItemId String
+  checklistItem   StoreChecklistItem  @relation(fields: [checklistItemId], references: [id])
+  isCompleted     Boolean             @default(false)
+  note            String?
+
+  @@index([logId])
+}
+
+/// The actual "close business day" lock — one row per calendar date.
+/// Its mere existence (closedAt not null) is what a future
+/// modification-blocking check would look for; today, closing itself
+/// is real and enforced (requires the closing checklist done and the
+/// day's cash shift closed), the *downstream* lock on other actions
+/// is a real, separate follow-up — see the honesty note where this is
+/// wired into the controller.
+model BusinessDay {
+  id             String    @id @default(uuid())
+  date           DateTime  @unique @db.Date
+  closedAt       DateTime?
+  closedByUserId String?
+  closedByUser   User?     @relation(fields: [closedByUserId], references: [id])
+}
+
+model CashShift {
+  id             String          @id @default(uuid())
+  openedByUserId String
+  openedByUser   User            @relation("CashShiftsOpened", fields: [openedByUserId], references: [id])
+  openingCashRs  Decimal         @db.Decimal(10, 2)
+  openedAt       DateTime        @default(now())
+
+  closedByUserId String?
+  closedByUser   User?           @relation("CashShiftsClosed", fields: [closedByUserId], references: [id])
+  // Counted at close time (what's physically in the drawer) vs. computed
+  // from openingCashRs + cash sales - cash refunds - expenses during the
+  // window — differenceRs = closingCashRs - expectedCashRs, the number
+  // that actually matters for catching theft, miscounts, or comps that
+  // were never logged as a proper discount/refund.
+  closingCashRs  Decimal?        @db.Decimal(10, 2)
+  expectedCashRs Decimal?        @db.Decimal(10, 2)
+  differenceRs   Decimal?        @db.Decimal(10, 2)
+  closedAt       DateTime?
+  status         CashShiftStatus @default(OPEN)
+
+  expenses       CashExpense[]
+
+  @@index([status])
+}
+
+/// Petty cash paid straight out of the drawer during a shift (e.g. an emergency ingredient run) — reduces expected cash at close.
+model CashExpense {
+  id        String    @id @default(uuid())
+  shiftId   String
+  shift     CashShift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  amountRs  Decimal   @db.Decimal(10, 2)
+  note      String
+  createdAt DateTime  @default(now())
+}
+
+enum ExpenseCategory {
+  PURCHASE
+  OPERATING
+  STAFF
+  DELIVERY
+  MARKETING
+  EQUIPMENT
+  OTHER
+}
+
+/// Deliberately separate from CashExpense above — CashExpense only
+/// exists to make one cash-till shift's numbers reconcile ("cash sales
+/// - cash expenses = expected closing cash"), while this is the
+/// broader business-expense ledger the Finance department needs:
+/// purchase costs, staff costs, marketing spend, equipment — most of
+/// which never touch the physical cash drawer at all (e.g. a bank
+/// transfer for a marketing campaign).
+model Expense {
+  id              String          @id @default(uuid())
+  category        ExpenseCategory
+  amountRs        Decimal         @db.Decimal(10, 2)
+  description     String
+  expenseDate     DateTime        @default(now())
+  paymentMethod   String? // free text (e.g. "Bank Transfer", "UPI", "Cash") — deliberately not the customer-facing PaymentMethod enum, since a business expense can be paid in ways a customer order never is (cheque, bank transfer)
+  createdByUserId String
+  createdByUser   User            @relation(fields: [createdByUserId], references: [id])
+  createdAt       DateTime        @default(now())
+
+  @@index([category])
+  @@index([expenseDate])
+}
+
+// ---------------------------------------------------------
+// AI SAFETY — a lightweight audit log, not a moderation
+// system. When a customer's message to the AI assistant
+// touches a sensitive medical topic (pregnancy, diabetes,
+// kidney/liver disease, medication, severe allergy, or a
+// child's diet), AiService reinforces the system prompt for
+// that turn and records a flag here so the shop owner has
+// real visibility into how often this comes up — not just a
+// silent hope that the system prompt alone is enough.
+// ---------------------------------------------------------
+
+model AiSafetyFlag {
+  id             String   @id @default(uuid())
+  customerId     String
+  customer       Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  categories     String[] // e.g. ["PREGNANCY", "MEDICATION"]
+  // Truncated (~200 chars) — enough context for admin review without
+  // retaining a full conversation transcript.
+  messageExcerpt String
+  createdAt      DateTime @default(now())
+
+  @@index([customerId, createdAt])
+}
+
+// ---------------------------------------------------------
+// NOTIFICATION CENTER — an in-app inbox, not just ephemeral
+// toasts or emails. Individual notifications are created
+// alongside events that already happen elsewhere (order status
+// changes, achievement unlocks) so there's a persistent,
+// readable history — plus admin can broadcast an announcement
+// to every customer (e.g. "closed tomorrow for maintenance").
+// ---------------------------------------------------------
+
+enum NotificationType {
+  ORDER_UPDATE
+  ACHIEVEMENT
+  ANNOUNCEMENT
+  SUPPORT_REPLY
+}
+
+model Notification {
+  id         String           @id @default(uuid())
+  customerId String
+  customer   Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  type       NotificationType
+  title      String
+  body       String
+  isRead     Boolean          @default(false)
+  // Optional deep-link back to the order that triggered this, for
+  // ORDER_UPDATE notifications specifically.
+  orderId    String?
+  createdAt  DateTime         @default(now())
+
+  @@index([customerId, createdAt])
+  @@index([customerId, isRead])
+}
+
+/// One row per admin broadcast — distinct from the fan-out of individual
+/// Notification rows it creates (one per customer, so each customer gets
+/// their own read/unread state). This is purely for the admin's own
+/// "what did I send and when" history; customers never see this table.
+model AnnouncementLog {
+  id             String   @id @default(uuid())
+  title          String
+  body           String
+  recipientCount Int
+  sentByUserId   String
+  sentByUser     User     @relation(fields: [sentByUserId], references: [id])
+  createdAt      DateTime @default(now())
+}
+
+// ---------------------------------------------------------
+// STAFF ATTENDANCE — clock-in/clock-out time tracking.
+// Deliberately separate from CashShift (drawer reconciliation):
+// a staff member's worked hours and a till's cash session are
+// different things that don't have to align 1:1 — kitchen
+// staff clock in without ever touching a drawer, and multiple
+// staff can share one drawer across a single cash shift while
+// each clocks their own hours independently.
+// ---------------------------------------------------------
+
+model StaffShift {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id])
+  clockedInAt  DateTime  @default(now())
+  clockedOutAt DateTime?
+  note         String?
+
+  @@index([userId, clockedInAt])
+}
+
+// ---------------------------------------------------------
+// SUPPORT TICKETING — a real conversation thread per issue,
+// not just an email address. Optionally linked to a specific
+// order for context (the most common reason a ticket exists).
+// ---------------------------------------------------------
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+model SupportTicket {
+  id         String              @id @default(uuid())
+  customerId String
+  customer   Customer            @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  // Optional — most tickets are about a specific order ("my delivery
+  // never arrived"), but not all (e.g. a general account question).
+  orderId    String?
+  subject    String
+  status     TicketStatus        @default(OPEN)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+  messages   SupportTicketMessage[]
+
+  @@index([customerId, createdAt])
+  @@index([status])
+}
+
+model SupportTicketMessage {
+  id              String        @id @default(uuid())
+  ticketId        String
+  ticket          SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  isFromAdmin     Boolean       @default(false)
+  // Which admin/staff member replied — only ever set when isFromAdmin
+  // is true. A customer's own messages don't need a User reference; the
+  // ticket's customerId already identifies who wrote them.
+  repliedByUserId String?
+  repliedByUser   User?         @relation(fields: [repliedByUserId], references: [id])
+  body            String
+  createdAt       DateTime      @default(now())
+
+  @@index([ticketId, createdAt])
+}

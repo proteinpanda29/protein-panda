@@ -1,0 +1,13 @@
+{
+  "name": "protein-panda-load-test",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Standalone load-testing scripts — run from your own computer, never deployed as part of the app itself.",
+  "scripts": {
+    "test:read": "node read-only.js",
+    "test:write": "node write-path.js"
+  },
+  "dependencies": {
+    "autocannon": "^8.0.0"
+  }
+}
