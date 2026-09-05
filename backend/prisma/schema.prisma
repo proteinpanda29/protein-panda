@@ -21,15 +21,13 @@ enum Role {
   DELIVERY
 }
 
-/**
- * The 6 operating departments — a Staff member is assigned to exactly
- * one (or none, meaning full Owner/Admin access to everything). This
- * is deliberately separate from Role: Role controls which PORTAL
- * (customer/admin/delivery) an account can log into at all; Department
- * controls what an ADMIN-portal account can actually see and do once
- * inside. A cashier and the owner both have role=ADMIN (they both use
- * the admin portal), but very different departments.
- */
+// The 6 operating departments — a Staff member is assigned to exactly
+// one (or none, meaning full Owner/Admin access to everything). This
+// is deliberately separate from Role: Role controls which PORTAL
+// (customer/admin/delivery) an account can log into at all; Department
+// controls what an ADMIN-portal account can actually see and do once
+// inside. A cashier and the owner both have role=ADMIN (they both use
+// the admin portal), but very different departments.
 enum StaffDepartment {
   SALES               // POS, orders, payments, refunds, coupons
   OPERATIONS          // Kitchen, food safety, shop operations
@@ -1109,25 +1107,21 @@ enum AddressLabel {
   OTHER
 }
 
-/**
- * A real, revocable login session — not just a stateless JWT. Each
- * login (OTP or Google) creates one of these, and its id is embedded
- * in the JWT itself as `sessionId`. JwtStrategy checks revokedAt on
- * every request, the same real-time pattern already used for
- * User.isActive — this is what actually makes "log out this device"
- * possible; without it, a JWT stays valid until it naturally expires
- * (7 days) no matter what a person does in their account settings.
- */
-/**
- * One row per browser/device that's granted notification permission —
- * a customer with the site open on both their phone and laptop has
- * two of these, and gets the push on both. Deliberately separate from
- * Session above: a push subscription can genuinely outlive a login
- * session (the browser stays subscribed even after logging out, until
- * explicitly revoked or the browser itself drops it), so tying the two
- * together would mean losing notification delivery on every routine
- * re-login.
- */
+// A real, revocable login session — not just a stateless JWT. Each
+// login (OTP or Google) creates one of these, and its id is embedded
+// in the JWT itself as `sessionId`. JwtStrategy checks revokedAt on
+// every request, the same real-time pattern already used for
+// User.isActive — this is what actually makes "log out this device"
+// possible; without it, a JWT stays valid until it naturally expires
+// (7 days) no matter what a person does in their account settings.
+// One row per browser/device that's granted notification permission —
+// a customer with the site open on both their phone and laptop has
+// two of these, and gets the push on both. Deliberately separate from
+// Session above: a push subscription can genuinely outlive a login
+// session (the browser stays subscribed even after logging out, until
+// explicitly revoked or the browser itself drops it), so tying the two
+// together would mean losing notification delivery on every routine
+// re-login.
 model PushSubscription {
   id         String   @id @default(uuid())
   customerId String
@@ -1145,14 +1139,12 @@ model PushSubscription {
   @@index([customerId])
 }
 
-/**
- * A real, queryable trail of who changed what — "Product price ₹180 →
- * ₹220, changed by Store Manager at 08:21" is the canonical example
- * this exists for. Deliberately generic (entityType/entityId/action as
- * plain strings, not a rigid enum per entity) so recording a new kind
- * of change later never requires a schema migration — only the
- * specific call sites that choose to log something need to change.
- */
+// A real, queryable trail of who changed what — "Product price ₹180 →
+// ₹220, changed by Store Manager at 08:21" is the canonical example
+// this exists for. Deliberately generic (entityType/entityId/action as
+// plain strings, not a rigid enum per entity) so recording a new kind
+// of change later never requires a schema migration — only the
+// specific call sites that choose to log something need to change.
 model AuditLog {
   id          String   @id @default(uuid())
   actorUserId String
