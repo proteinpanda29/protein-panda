@@ -76,11 +76,24 @@ export class SegmentsService {
   private async membershipExpiringSoon() {
     const now = new Date();
     const soon = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-    const memberships = await this.prisma.membership.findMany({
-      where: { status: 'ACTIVE', endDate: { gte: now, lte: soon } },
+    // Membership has no endDate column at all — it's tracked by
+    // totalDays/daysCompleted/startDate instead (a subscription that
+    // fulfills roughly one day at a time), so "expiring soon" has to be
+    // computed from those: startDate + totalDays approximates when it
+    // naturally finishes. Filtered in application code rather than the
+    // database query since this is a derived value, not a real column.
+    const activeMemberships = await this.prisma.membership.findMany({
+      where: { status: 'ACTIVE' },
       include: { customer: { select: { id: true, name: true } } },
     });
-    return memberships.map((m: any) => ({ id: m.customer.id, name: m.customer.name, endDate: m.endDate }));
+
+    return activeMemberships
+      .map((m: { startDate: Date; totalDays: number; customer: { id: string; name: string } }) => {
+        const expectedEndDate = new Date(m.startDate);
+        expectedEndDate.setDate(expectedEndDate.getDate() + m.totalDays);
+        return { id: m.customer.id, name: m.customer.name, expectedEndDate };
+      })
+      .filter((m: { expectedEndDate: Date }) => m.expectedEndDate >= now && m.expectedEndDate <= soon);
   }
 
   /**

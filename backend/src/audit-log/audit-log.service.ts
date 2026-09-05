@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
 
 interface AuditLogInput {
@@ -24,7 +25,13 @@ export class AuditLogService {
    */
   async record(input: AuditLogInput): Promise<void> {
     try {
-      await this.prisma.auditLog.create({ data: input });
+      // Prisma's Json column type requires its own InputJsonValue type,
+      // not a plain Record<string, unknown> — the cast is safe here
+      // since every call site in this codebase only ever passes plain,
+      // genuinely JSON-serializable data (numbers, strings, booleans).
+      await this.prisma.auditLog.create({
+        data: { ...input, metadata: input.metadata as Prisma.InputJsonValue | undefined },
+      });
     } catch (err) {
       this.logger.error(`Failed to write audit log for ${input.action}: ${(err as Error).message}`);
     }

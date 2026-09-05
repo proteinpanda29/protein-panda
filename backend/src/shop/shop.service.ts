@@ -133,7 +133,13 @@ export class ShopService {
     if (zones.length === 0) return null;
 
     const distanceKm = haversineDistanceKm({ lat: settings.shopLat, lng: settings.shopLng }, { lat: customerLat, lng: customerLng });
-    const zone = zones.find((z: { maxDistanceKm: number }) => distanceKm <= Number(z.maxDistanceKm));
+    // No explicit parameter type here — letting TypeScript infer it from
+    // `zones` itself is what's correct. An explicit `{ maxDistanceKm: number }`
+    // annotation used to be here, but the real Prisma-generated type for
+    // a Decimal-typed column is a Decimal object, not a plain number, so
+    // that annotation was actually wrong (only ever caught by the real
+    // Prisma client's strict types, not this repo's test-time stub).
+    const zone = zones.find((z) => distanceKm <= Number(z.maxDistanceKm));
     if (!zone) return null; // beyond every configured zone — not deliverable by distance
 
     return {
