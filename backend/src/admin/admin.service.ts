@@ -5,6 +5,9 @@ import { OrdersGateway } from '../common/orders.gateway';
 import { AuditLogService } from '../audit-log/audit-log.service';
 import { BusinessDayLockService } from '../common/business-day-lock.service';
 import { getLevelForXp } from '../customers/levels';
+import { SegmentsService } from '../customers/segments.service';
+import { ExpensesService } from '../expenses/expenses.service';
+import { SuppliersService } from '../suppliers/suppliers.service';
 
 // calciumMg/ironMg/potassiumMg were always in the database schema but
 // never actually accepted by this create/update logic — meaning the
@@ -30,6 +33,9 @@ export class AdminService {
     private gateway: OrdersGateway,
     private auditLog: AuditLogService,
     private businessDayLock: BusinessDayLockService,
+    private segments: SegmentsService,
+    private expenses: ExpensesService,
+    private suppliers: SuppliersService,
   ) {}
 
   /**
@@ -97,6 +103,105 @@ export class AdminService {
       yesterdayTotalSalesRs,
       yesterdayOrderCount: yesterdayOrders.length,
     };
+  }
+
+  /**
+   * The department-specific home screen — real KPIs for whichever
+   * department(s) the caller actually holds, reusing the same data
+   * each department's own dedicated page already shows rather than
+   * running duplicate queries. The Owner (empty departments array)
+   * doesn't get this at all — they already have the full
+   * getTodayOverview() above as their home screen, which is
+   * deliberately broader than any one department's slice.
+   */
+  async getMyDashboard(departments: string[]) {
+    const sections = await Promise.all(
+      departments.map(async (dept) => {
+        switch (dept) {
+          case 'SALES': {
+            const overview = await this.getTodayOverview();
+            return {
+              department: 'SALES',
+              title: '💰 Sales & Customer',
+              stats: [
+                { label: "Today's Sales", value: `₹${overview.totalSalesRs.toLocaleString()}` },
+                { label: 'Orders Today', value: String(overview.orderCount) },
+                { label: 'Pending Orders', value: String(overview.pendingOrderCount) },
+                { label: 'New Customers', value: String(overview.newCustomers) },
+              ],
+            };
+          }
+          case 'OPERATIONS': {
+            const kitchenQueue = await this.getKitchenQueue();
+            return {
+              department: 'OPERATIONS',
+              title: '👨‍🍳 Operations & Store',
+              stats: [
+                { label: 'Orders In Kitchen', value: String(kitchenQueue.length) },
+                { label: 'Preparing', value: String(kitchenQueue.filter((o: { status: string }) => o.status === 'PREPARING').length) },
+                { label: 'Ready for Pickup/Delivery', value: String(kitchenQueue.filter((o: { status: string }) => o.status === 'READY').length) },
+              ],
+            };
+          }
+          case 'SUPPLY_CHAIN': {
+            const [lowStock, expiring, pendingRequests] = await Promise.all([
+              this.lowStockItems(),
+              this.listExpiringBatches(),
+              this.suppliers.listPurchaseRequests('PENDING'),
+            ]);
+            return {
+              department: 'SUPPLY_CHAIN',
+              title: '📦 Supply Chain & Inventory',
+              stats: [
+                { label: 'Low Stock Items', value: String(lowStock.length) },
+                { label: 'Expiring Soon', value: String(expiring.length) },
+                { label: 'Pending Purchase Requests', value: String(pendingRequests.length) },
+              ],
+            };
+          }
+          case 'LOYALTY': {
+            const activeMembers = await this.segments.getSegment('ACTIVE_MEMBERS');
+            const closeToReward = await this.segments.getSegment('CLOSE_TO_MONTHLY_REWARD');
+            return {
+              department: 'LOYALTY',
+              title: '🏋️ Loyalty, Fitness & Membership',
+              stats: [
+                { label: 'Active Members', value: String(activeMembers.length) },
+                { label: 'Close to Monthly Reward', value: String(closeToReward.length) },
+              ],
+            };
+          }
+          case 'DELIVERY_LOGISTICS': {
+            const [availableRiders, allRiders] = await Promise.all([this.listAvailableRiders(), this.listDeliveryPersonnel()]);
+            const activeDeliveries = await this.prisma.order.count({ where: { status: { in: ['OUT_FOR_DELIVERY', 'ARRIVED'] } } });
+            return {
+              department: 'DELIVERY_LOGISTICS',
+              title: '🚚 Delivery & Logistics',
+              stats: [
+                { label: 'Riders On Duty', value: String(availableRiders.length) },
+                { label: 'Total Riders', value: String(allRiders.length) },
+                { label: 'Active Deliveries', value: String(activeDeliveries) },
+              ],
+            };
+          }
+          case 'FINANCE_MARKETING': {
+            const today = new Date();
+            const weekAgo = new Date(today);
+            weekAgo.setDate(weekAgo.getDate() - 7);
+            const expenseSummary = await this.expenses.getExpenseSummary(weekAgo.toISOString(), today.toISOString());
+            return {
+              department: 'FINANCE_MARKETING',
+              title: '📊 Finance, Marketing & BI',
+              stats: [{ label: 'Expenses (Last 7 Days)', value: `₹${Number(expenseSummary.totalRs ?? 0).toLocaleString()}` }],
+            };
+          }
+          default:
+            return null;
+        }
+      }),
+    );
+
+    return sections.filter((s) => s !== null);
   }
 
   async lowStockItems() {
@@ -800,7 +905,7 @@ export class AdminService {
    * which delivery went bad, which is the whole point of tracking
    * batches in the first place.
    */
-  async recordWastage(batchId: string, quantity: number, reason: string) {
+  async recordWastage(batchId: string, quantity: number, reason: string, actorUserId?: string, actorRole?: 'ADMIN' | 'CUSTOMER' | 'DELIVERY') {
     if (quantity <= 0) throw new BadRequestException('Quantity must be positive');
     if (!reason?.trim()) throw new BadRequestException('A reason is required');
 
@@ -814,13 +919,29 @@ export class AdminService {
     const inventoryItem = batch.ingredient.stock;
     if (!inventoryItem) throw new BadRequestException('No inventory record for this ingredient');
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       await tx.ingredientBatch.update({ where: { id: batchId }, data: { quantityRemaining: { decrement: quantity } } });
       await tx.inventoryItem.update({ where: { id: inventoryItem.id }, data: { quantityOnHand: { decrement: quantity } } });
       return tx.stockMovement.create({
         data: { inventoryItemId: inventoryItem.id, batchId, type: 'WASTAGE', quantity: -quantity, note: reason },
       });
     });
+
+    if (actorUserId) {
+      this.auditLog
+        .record({
+          actorUserId,
+          actorRole: actorRole ?? 'ADMIN',
+          action: 'INVENTORY_WASTAGE_RECORDED',
+          entityType: 'IngredientBatch',
+          entityId: batchId,
+          summary: `${batch.ingredient.name}: ${quantity} ${batch.ingredient.unit} wasted — ${reason}`,
+          metadata: { quantity, reason, ingredientId: batch.ingredientId },
+        })
+        .catch(() => undefined);
+    }
+
+    return result;
   }
 
   /** Batches expiring within `daysAhead` days that still have stock remaining — the "expires tomorrow" warning list. */
@@ -958,8 +1079,29 @@ export class AdminService {
     });
   }
 
-  async updateReward(id: string, data: Partial<{ name: string; description: string; pointsCost: number; valueRs: number; isActive: boolean }>) {
-    return this.prisma.reward.update({ where: { id }, data });
+  async updateReward(id: string, data: Partial<{ name: string; description: string; pointsCost: number; valueRs: number; isActive: boolean }>, actorUserId?: string, actorRole?: 'ADMIN' | 'CUSTOMER' | 'DELIVERY') {
+    let before: { name: string; pointsCost: number } | null = null;
+    if (actorUserId && data.pointsCost !== undefined) {
+      before = await this.prisma.reward.findUnique({ where: { id }, select: { name: true, pointsCost: true } });
+    }
+
+    const updated = await this.prisma.reward.update({ where: { id }, data });
+
+    if (actorUserId && before && data.pointsCost !== undefined && Number(before.pointsCost) !== data.pointsCost) {
+      this.auditLog
+        .record({
+          actorUserId,
+          actorRole: actorRole ?? 'ADMIN',
+          action: 'REWARD_COST_CHANGED',
+          entityType: 'Reward',
+          entityId: id,
+          summary: `${before.name}: points cost changed from ${before.pointsCost} to ${data.pointsCost}`,
+          metadata: { from: Number(before.pointsCost), to: data.pointsCost },
+        })
+        .catch(() => undefined);
+    }
+
+    return updated;
   }
 
   // ---- Coupons ----
@@ -993,12 +1135,40 @@ export class AdminService {
     });
   }
 
-  async updateCoupon(id: string, data: Partial<{ description: string; isActive: boolean; validUntil: string; usageLimit: number }>) {
+  async updateCoupon(id: string, data: Partial<{ description: string; isActive: boolean; validUntil: string; usageLimit: number }>, actorUserId?: string, actorRole?: 'ADMIN' | 'CUSTOMER' | 'DELIVERY') {
     const { validUntil, ...rest } = data;
-    return this.prisma.coupon.update({
+
+    // Deactivating/reactivating a coupon is the sensitive edge here —
+    // it changes what every customer can redeem right now, so it goes
+    // through the same closed-day lock as price changes and refunds.
+    if (data.isActive !== undefined) {
+      await this.businessDayLock.assertNotClosed('changing a coupon\'s active status');
+    }
+
+    let before: { code: string; isActive: boolean } | null = null;
+    if (actorUserId && data.isActive !== undefined) {
+      before = await this.prisma.coupon.findUnique({ where: { id }, select: { code: true, isActive: true } });
+    }
+
+    const updated = await this.prisma.coupon.update({
       where: { id },
       data: { ...rest, ...(validUntil ? { validUntil: new Date(validUntil) } : {}) },
     });
+
+    if (actorUserId && before && data.isActive !== undefined && before.isActive !== data.isActive) {
+      this.auditLog
+        .record({
+          actorUserId,
+          actorRole: actorRole ?? 'ADMIN',
+          action: data.isActive ? 'COUPON_ACTIVATED' : 'COUPON_DEACTIVATED',
+          entityType: 'Coupon',
+          entityId: id,
+          summary: `Coupon ${before.code} was ${data.isActive ? 'activated' : 'deactivated'}`,
+        })
+        .catch(() => undefined);
+    }
+
+    return updated;
   }
 
   // ---- Games & Levels ----

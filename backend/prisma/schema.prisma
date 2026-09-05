@@ -83,6 +83,11 @@ enum OrderStatus {
   CANCELLED
 }
 
+enum DeliveryPreference {
+  DONT_RING_BELL
+  LEAVE_AT_DOOR
+}
+
 enum DeliveryFailureReason {
   CUSTOMER_UNAVAILABLE
   WRONG_ADDRESS
@@ -197,6 +202,7 @@ model User {
   businessDaysClosed BusinessDay[]
   purchaseRequestsRequested PurchaseRequest[] @relation("PurchaseRequestsRequested")
   purchaseRequestsApproved PurchaseRequest[] @relation("PurchaseRequestsApproved")
+  campaignsSent   Campaign[]
   expensesRecorded  Expense[]
 
   @@index([role])
@@ -292,6 +298,11 @@ model CustomerAllergy {
 // STAFF / ADMIN
 // ---------------------------------------------------------
 
+enum StaffPermissionLevel {
+  VIEWER  // can see everything in their department(s), can't change anything
+  MANAGER // can see AND make changes — the original, pre-existing behavior
+}
+
 model Staff {
   id         String   @id @default(uuid())
   userId     String   @unique
@@ -305,6 +316,12 @@ model Staff {
   // genuinely runs both the shop floor and the stockroom). Access is
   // to the UNION of everything listed — enforced by DepartmentGuard.
   departments StaffDepartment[] @default([])
+  // Defaults to MANAGER deliberately — every staff member who existed
+  // before this field was added keeps their exact existing access on
+  // migration; nobody's permissions silently change. Only applies
+  // within their own department(s); it says nothing about departments
+  // they don't hold at all (DepartmentGuard already blocks those).
+  permissionLevel StaffPermissionLevel @default(MANAGER)
   createdAt  DateTime @default(now())
 }
 
@@ -700,6 +717,12 @@ model DeliveryOrder {
   // delivered but I never got it" disputes: proof the code exchanged
   // hands, not just a rider's tap on a button.
   deliveryOtp      String?
+  // Set from the "Don't ring the bell" / "Leave at door" push
+  // notification action buttons — a customer can set this in one tap
+  // right from the notification, without opening the app. Purely
+  // informational for the rider (shown alongside the delivery
+  // address/instructions); doesn't change any delivery workflow logic.
+  deliveryPreference DeliveryPreference?
   failureReason    DeliveryFailureReason?
   failureNote      String?
   failedAt         DateTime?
@@ -717,6 +740,22 @@ model DeliveryOrder {
 
 // Singleton row (id is always "default") controlling shop open/closed
 // status shown across the site.
+/// Business rules that were previously hardcoded constants scattered
+/// across the codebase — the loyalty points formula, the monthly
+/// visit/challenge targets. A single-row settings table, same pattern
+/// as ShopSettings: one fixed id, upserted rather than having a
+/// separate creation step, so a shop that never touches this screen
+/// gets sensible defaults automatically and nothing breaks.
+model BusinessRuleSettings {
+  id                         String  @id @default("default")
+  // Loyalty formula: floor(purchaseRs / loyaltyDivisorRs) * loyaltyMultiplier
+  loyaltyDivisorRs           Int     @default(10)
+  loyaltyMultiplier          Int     @default(2)
+  monthlyVisitTarget         Int     @default(15)
+  requiredChallengesPerMonth Int     @default(1)
+  updatedAt                  DateTime @updatedAt
+}
+
 model ShopSettings {
   id              String   @id @default("default")
   isOpen          Boolean  @default(true)
@@ -1510,6 +1549,28 @@ model Expense {
 
   @@index([category])
   @@index([expenseDate])
+}
+
+/// A real record of "we sent this message to this segment" — the
+/// actual outreach action, distinct from the segment computation
+/// itself (SegmentsService just answers "who's in this group right
+/// now"; this is "we messaged that group, here's proof and how many
+/// people got it"). Recipients aren't stored individually — the
+/// segment is recomputed fresh each time a campaign is sent, so
+/// recipientCount is a snapshot of who qualified at send time, not a
+/// live-updating list.
+model Campaign {
+  id             String   @id @default(uuid())
+  name           String
+  segmentType    String
+  title          String
+  body           String
+  recipientCount Int
+  sentByUserId   String
+  sentByUser     User     @relation(fields: [sentByUserId], references: [id])
+  sentAt         DateTime @default(now())
+
+  @@index([sentAt])
 }
 
 // ---------------------------------------------------------

@@ -60,7 +60,7 @@ describe('JwtStrategy.validate', () => {
 
     expect(prisma.customer.findUnique).not.toHaveBeenCalled();
     expect(prisma.deliveryPerson.findUnique).not.toHaveBeenCalled();
-    expect(result).toEqual({ userId: 'user-1', role: 'ADMIN', identifier: 'admin@shop.com', sessionId: undefined, departments: [] });
+    expect(result).toEqual({ userId: 'user-1', role: 'ADMIN', identifier: 'admin@shop.com', sessionId: undefined, departments: [], permissionLevel: 'MANAGER' });
   });
 
   it('fetches the real, current departments live from the database — never trusts the JWT payload\'s own (possibly stale) copy', async () => {

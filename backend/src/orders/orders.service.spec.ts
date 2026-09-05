@@ -74,8 +74,14 @@ function makeHarness(opts: { product?: any; customer?: any; activeGoal?: any } =
   const inventory = { deductForOrder: jest.fn().mockResolvedValue(undefined) } as any;
 
   const wallet = { debit: jest.fn().mockResolvedValue(undefined) } as any;
-  const service = new OrdersService(prisma, points, streaks, attendance, gateway, achievements, shop, notificationQueue, inventory, notificationCenter, wallet);
-  return { service, tx, prisma, points, streaks, attendance, gateway, shop, invoices, notificationQueue, notificationCenter, inventory, wallet };
+  const businessRules = {
+    getRules: jest.fn().mockResolvedValue({ loyaltyDivisorRs: 10, loyaltyMultiplier: 2, monthlyVisitTarget: 15, requiredChallengesPerMonth: 1 }),
+    calculateLoyaltyPoints: jest.fn((purchaseRs: number, rules: { loyaltyDivisorRs: number; loyaltyMultiplier: number }) =>
+      Math.floor(purchaseRs / rules.loyaltyDivisorRs) * rules.loyaltyMultiplier,
+    ),
+  } as any;
+  const service = new OrdersService(prisma, points, streaks, attendance, gateway, achievements, shop, notificationQueue, inventory, notificationCenter, wallet, businessRules);
+  return { service, tx, prisma, points, streaks, attendance, gateway, shop, invoices, notificationQueue, notificationCenter, inventory, wallet, businessRules };
 }
 
 describe('OrdersService.create', () => {
@@ -1019,8 +1025,41 @@ describe('OrdersService.notifyStatusChange', () => {
     await service.notifyStatusChange('order-1', 'ASSIGNED', 'Lathif');
 
     expect(notificationCenter.notifyCustomer).toHaveBeenCalledWith(
-      'cust-1', 'ORDER_UPDATE', 'Lathif is your delivery partner', 'They are on their way to pick up your order.',
+      'cust-1', 'ORDER_UPDATE', 'Lathif is your delivery partner', 'They are on their way to pick up your order.', undefined,
     );
+  });
+
+  it('includes real "Don\'t ring the bell" / "Leave at door" action buttons specifically for OUT_FOR_DELIVERY', async () => {
+    const { service, prisma, notificationCenter } = makeHarness();
+    prisma.order.findUnique.mockResolvedValue({ orderNumber: 'PP0042', customerId: 'cust-1' });
+
+    await service.notifyStatusChange('order-1', 'OUT_FOR_DELIVERY', 'Siva');
+
+    expect(notificationCenter.notifyCustomer).toHaveBeenCalledWith(
+      'cust-1',
+      'ORDER_UPDATE',
+      expect.any(String),
+      expect.any(String),
+      expect.objectContaining({
+        actions: [
+          { action: 'DONT_RING_BELL', title: "Don't ring the bell" },
+          { action: 'LEAVE_AT_DOOR', title: 'Leave at door' },
+        ],
+        data: { orderId: 'order-1', url: '/orders?highlight=order-1' },
+      }),
+    );
+  });
+
+  it('never includes action buttons for any other status — only OUT_FOR_DELIVERY is the right moment for them', async () => {
+    const { service, prisma, notificationCenter } = makeHarness();
+    prisma.order.findUnique.mockResolvedValue({ orderNumber: 'PP0042', customerId: 'cust-1' });
+
+    for (const status of ['ACCEPTED', 'PREPARING', 'READY', 'ASSIGNED', 'ARRIVED', 'DELIVERED']) {
+      notificationCenter.notifyCustomer.mockClear();
+      await service.notifyStatusChange('order-1', status);
+      const call = notificationCenter.notifyCustomer.mock.calls[0];
+      expect(call[4]).toBeUndefined();
+    }
   });
 
   it('falls back to a generic message when a rider is assigned but somehow has no name on record', async () => {
@@ -1030,7 +1069,7 @@ describe('OrdersService.notifyStatusChange', () => {
     await service.notifyStatusChange('order-1', 'ASSIGNED');
 
     expect(notificationCenter.notifyCustomer).toHaveBeenCalledWith(
-      'cust-1', 'ORDER_UPDATE', 'Rider Assigned', expect.stringContaining('PP0042'),
+      'cust-1', 'ORDER_UPDATE', 'Rider Assigned', expect.stringContaining('PP0042'), undefined,
     );
   });
 
@@ -1142,7 +1181,50 @@ describe('OrdersService.tipDeliveryPerson', () => {
   });
 });
 
+describe('OrdersService.setDeliveryPreference', () => {
+  it('rejects setting a preference on an order that does not belong to this customer', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.order.findUniqueOrThrow.mockResolvedValue({ id: 'order-1', customerId: 'cust-OTHER', status: 'OUT_FOR_DELIVERY', deliveryOrder: { id: 'do-1' } });
+
+    await expect(service.setDeliveryPreference('cust-1', 'order-1', 'DONT_RING_BELL')).rejects.toThrow(/does not belong to you/);
+  });
+
+  it('rejects an order with no delivery at all (e.g. a PICKUP order)', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.order.findUniqueOrThrow.mockResolvedValue({ id: 'order-1', customerId: 'cust-1', status: 'RECEIVED', deliveryOrder: null });
+
+    await expect(service.setDeliveryPreference('cust-1', 'order-1', 'LEAVE_AT_DOOR')).rejects.toThrow(/no delivery/);
+  });
+
+  it('rejects setting a preference on an order that has already been delivered — too late to matter', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.order.findUniqueOrThrow.mockResolvedValue({ id: 'order-1', customerId: 'cust-1', status: 'DELIVERED', deliveryOrder: { id: 'do-1' } });
+
+    await expect(service.setDeliveryPreference('cust-1', 'order-1', 'LEAVE_AT_DOOR')).rejects.toThrow(/already been delivered/);
+  });
+
+  it('allows setting a preference at any other stage — deliberately loose, since a customer might tap the notification before the app has even loaded', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.order.findUniqueOrThrow.mockResolvedValue({ id: 'order-1', customerId: 'cust-1', status: 'RECEIVED', deliveryOrder: { id: 'do-1' } });
+    prisma.deliveryOrder.update.mockResolvedValue({});
+
+    await service.setDeliveryPreference('cust-1', 'order-1', 'DONT_RING_BELL');
+
+    expect(prisma.deliveryOrder.update).toHaveBeenCalledWith({ where: { id: 'do-1' }, data: { deliveryPreference: 'DONT_RING_BELL' } });
+  });
+});
+
 describe('OrdersService.grantOrderRewards', () => {
+  it('uses the admin-configurable loyalty formula, not a hardcoded one — a reconfigured formula genuinely changes the points awarded', async () => {
+    const { service, tx, points, businessRules } = makeHarness();
+    businessRules.getRules.mockResolvedValue({ loyaltyDivisorRs: 5, loyaltyMultiplier: 3, monthlyVisitTarget: 15, requiredChallengesPerMonth: 1 });
+
+    await service.grantOrderRewards(tx, 'order-1', 'cust-1', 50, 150);
+
+    // With the default ÷10×2 formula this would be 30; with ÷5×3 it's 90
+    expect(points.award).toHaveBeenCalledWith(tx, expect.objectContaining({ points: 90, sourceType: PointsSourceType.PURCHASE }));
+  });
+
   it('awards both the referee and referrer on the referred customer\'s first order, when they were referred', async () => {
     const { service, tx, points } = makeHarness({ customer: { id: 'cust-1', allergies: [], referredByCode: 'friend-code', name: 'Ravi' } });
     tx.customer.findUnique

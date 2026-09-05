@@ -38,6 +38,11 @@ export class StaffService {
     // department at once. Ignored entirely for DELIVERY accounts, which
     // have no department concept at all.
     departments?: StaffDepartment[];
+    // Defaults to MANAGER (full access within their department) when
+    // omitted — matches the Staff schema field's own default, so
+    // creating a staff member without specifying this behaves exactly
+    // as it always has.
+    permissionLevel?: 'VIEWER' | 'MANAGER';
   }) {
     if (!data.name?.trim()) throw new BadRequestException('Name is required');
     if (!data.identifier?.trim()) throw new BadRequestException('A phone number or email is required');
@@ -57,24 +62,44 @@ export class StaffService {
         phone: isEmailIdentifier ? null : data.identifier,
         email: isEmailIdentifier ? data.identifier : null,
         ...(data.role === 'ADMIN'
-          ? { staff: { create: { name: data.name.trim(), position: data.position?.trim() || null, departments: data.departments ?? [] } } }
+          ? { staff: { create: { name: data.name.trim(), position: data.position?.trim() || null, departments: data.departments ?? [], ...(data.permissionLevel ? { permissionLevel: data.permissionLevel } : {}) } } }
           : { deliveryPerson: { create: { name: data.name.trim(), vehicleInfo: data.vehicleInfo?.trim() || null } } }),
       },
       include: { staff: true, deliveryPerson: true },
     });
   }
 
-  async updateStaff(userId: string, data: { name?: string; position?: string; vehicleInfo?: string; departments?: StaffDepartment[] }) {
+  async updateStaff(userId: string, data: { name?: string; position?: string; vehicleInfo?: string; departments?: StaffDepartment[]; permissionLevel?: 'VIEWER' | 'MANAGER' }, actorUserId?: string, actorRole?: 'ADMIN' | 'CUSTOMER' | 'DELIVERY') {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
       include: { staff: true, deliveryPerson: true },
     });
 
     if (user.role === 'ADMIN' && user.staff) {
-      return this.prisma.staff.update({
+      const beforeDepartments = user.staff.departments;
+      const updated = await this.prisma.staff.update({
         where: { id: user.staff.id },
-        data: { name: data.name, position: data.position, ...(data.departments !== undefined ? { departments: data.departments } : {}) },
+        data: { name: data.name, position: data.position, ...(data.departments !== undefined ? { departments: data.departments } : {}), ...(data.permissionLevel !== undefined ? { permissionLevel: data.permissionLevel } : {}) },
       });
+
+      if (actorUserId && data.departments !== undefined) {
+        const changed = JSON.stringify([...beforeDepartments].sort()) !== JSON.stringify([...data.departments].sort());
+        if (changed) {
+          this.auditLog
+            .record({
+              actorUserId,
+              actorRole: actorRole ?? 'ADMIN',
+              action: 'STAFF_DEPARTMENTS_CHANGED',
+              entityType: 'Staff',
+              entityId: user.staff.id,
+              summary: `${user.staff.name}: departments changed from [${beforeDepartments.join(', ') || 'Owner'}] to [${data.departments.join(', ') || 'Owner'}]`,
+              metadata: { from: beforeDepartments, to: data.departments },
+            })
+            .catch(() => undefined);
+        }
+      }
+
+      return updated;
     }
     if (user.role === 'DELIVERY' && user.deliveryPerson) {
       return this.prisma.deliveryPerson.update({

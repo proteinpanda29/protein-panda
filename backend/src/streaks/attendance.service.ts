@@ -1,15 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { BusinessRulesService } from '../common/business-rules.service';
 
 type Tx = Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>;
-
-// Configurable business rules — matches the department spec's own
-// "Business Rule Configuration" section by naming these as named
-// constants rather than burying magic numbers inline, even though
-// they're not yet exposed as an admin-editable setting (that's a
-// separate, larger piece of work — see the Admin/Owner Control gaps).
-export const MONTHLY_VISIT_TARGET = 15;
-export const REQUIRED_CHALLENGES_PER_MONTH = 1;
 
 function dateOnly(d: Date): Date {
   const copy = new Date(d);
@@ -27,12 +20,14 @@ function startOfNextMonth(d: Date): Date {
 
 @Injectable()
 export class AttendanceService {
+  constructor(private businessRules: BusinessRulesService) {}
+
   /**
    * Call once per qualifying order/day, same trigger point as
    * StreaksService.recordQualifyingActivity — but this counts DISTINCT
    * days visited, not consecutive ones. A customer visiting
-   * Mon/Wed/Fri/Sun all count toward the monthly 15, even though none
-   * of those are consecutive (which is all Streak would credit).
+   * Mon/Wed/Fri/Sun all count toward the monthly target, even though
+   * none of those are consecutive (which is all Streak would credit).
    * Idempotent — the unique (customerId, visitDate) constraint means a
    * second qualifying order on the same day is a harmless no-op, not a
    * duplicate visit.
@@ -48,31 +43,33 @@ export class AttendanceService {
   }
 
   /**
-   * The monthly 15-visit challenge itself: real distinct-day count
-   * within the current calendar month, plus whether the separate
+   * The monthly visit challenge itself: real distinct-day count within
+   * the current calendar month, plus whether the separate
    * fitness-challenge requirement is also met — combined, these are
-   * exactly the department spec's "15 visits + 1 challenge = reward
-   * eligible" rule, computed from real data rather than approximated.
+   * exactly the department spec's "N visits + M challenges = reward
+   * eligible" rule, computed from real data against admin-configurable
+   * targets (BusinessRulesService), not hardcoded numbers.
    */
   async getMonthlyProgress(prisma: Tx, customerId: string) {
     const now = new Date();
     const monthStart = startOfMonth(now);
     const monthEnd = startOfNextMonth(now);
 
-    const [visitCount, completedChallenges] = await Promise.all([
+    const [visitCount, completedChallenges, rules] = await Promise.all([
       prisma.attendance.count({ where: { customerId, visitDate: { gte: monthStart, lt: monthEnd } } }),
       prisma.gameAttempt.count({ where: { customerId, didWin: true, playedAt: { gte: monthStart, lt: monthEnd } } }),
+      this.businessRules.getRules(),
     ]);
 
-    const visitsComplete = visitCount >= MONTHLY_VISIT_TARGET;
-    const challengeComplete = completedChallenges >= REQUIRED_CHALLENGES_PER_MONTH;
+    const visitsComplete = visitCount >= rules.monthlyVisitTarget;
+    const challengeComplete = completedChallenges >= rules.requiredChallengesPerMonth;
 
     return {
       visitsThisMonth: visitCount,
-      visitTarget: MONTHLY_VISIT_TARGET,
+      visitTarget: rules.monthlyVisitTarget,
       visitsComplete,
       challengesCompletedThisMonth: completedChallenges,
-      challengeTarget: REQUIRED_CHALLENGES_PER_MONTH,
+      challengeTarget: rules.requiredChallengesPerMonth,
       challengeComplete,
       rewardEligible: visitsComplete && challengeComplete,
     };

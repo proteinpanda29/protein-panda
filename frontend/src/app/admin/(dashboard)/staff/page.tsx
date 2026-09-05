@@ -10,7 +10,7 @@ interface StaffRow {
   email: string | null;
   isActive: boolean;
   createdAt: string;
-  staff: { name: string; position: string | null; departments: string[] } | null;
+  staff: { name: string; position: string | null; departments: string[]; permissionLevel: 'VIEWER' | 'MANAGER' } | null;
   deliveryPerson: { name: string; vehicleInfo: string | null } | null;
 }
 
@@ -134,6 +134,7 @@ function AddStaffForm({ onDone }: { onDone: () => void }) {
   const [position, setPosition] = useState('');
   const [vehicleInfo, setVehicleInfo] = useState('');
   const [departments, setDepartments] = useState<string[]>([]);
+  const [permissionLevel, setPermissionLevel] = useState<'VIEWER' | 'MANAGER'>('MANAGER');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -152,6 +153,7 @@ function AddStaffForm({ onDone }: { onDone: () => void }) {
         position: role === 'ADMIN' ? position || undefined : undefined,
         vehicleInfo: role === 'DELIVERY' ? vehicleInfo || undefined : undefined,
         departments: role === 'ADMIN' ? departments : undefined,
+        permissionLevel: role === 'ADMIN' ? permissionLevel : undefined,
       });
       onDone();
     } catch (err: any) {
@@ -218,6 +220,32 @@ function AddStaffForm({ onDone }: { onDone: () => void }) {
               Owner sees and controls everything. Checking one or more departments gives access to just those areas — a cashier can&apos;t see supplier costs, for example. A staff member can now hold more than one department at once.
             </span>
           </div>
+
+          {departments.length > 0 && (
+            <div className="text-xs font-semibold uppercase tracking-wide text-brand-body sm:col-span-2">
+              Access Level
+              <div className="mt-1 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPermissionLevel('VIEWER')}
+                  className={`rounded-full border-2 px-4 py-1.5 text-xs font-bold normal-case ${
+                    permissionLevel === 'VIEWER' ? 'border-brand-primary bg-brand-primary text-brand-white' : 'border-brand-grey text-brand-black'
+                  }`}
+                >
+                  👁 Viewer — can look, can&apos;t change
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPermissionLevel('MANAGER')}
+                  className={`rounded-full border-2 px-4 py-1.5 text-xs font-bold normal-case ${
+                    permissionLevel === 'MANAGER' ? 'border-brand-primary bg-brand-primary text-brand-white' : 'border-brand-grey text-brand-black'
+                  }`}
+                >
+                  ✏️ Manager — full control
+                </button>
+              </div>
+            </div>
+          )}
         </>
       ) : (
         <input
@@ -250,6 +278,7 @@ function DepartmentCell({ row, onChanged }: { row: StaffRow; onChanged: () => vo
   const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState(false);
   const current = row.staff?.departments ?? [];
+  const currentLevel = row.staff?.permissionLevel ?? 'MANAGER';
 
   const toggle = async (value: string) => {
     const next = current.includes(value) ? current.filter((d) => d !== value) : [...current, value];
@@ -262,7 +291,17 @@ function DepartmentCell({ row, onChanged }: { row: StaffRow; onChanged: () => vo
     }
   };
 
-  const summary = current.length === 0 ? '👑 Owner' : current.map((d) => d.replace(/_/g, ' ')).join(' + ');
+  const setLevel = async (level: 'VIEWER' | 'MANAGER') => {
+    setSaving(true);
+    try {
+      await api.adminUpdateStaff(row.id, { permissionLevel: level });
+      onChanged();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const summary = current.length === 0 ? '👑 Owner' : `${current.map((d) => d.replace(/_/g, ' ')).join(' + ')} (${currentLevel === 'VIEWER' ? 'Viewer' : 'Manager'})`;
 
   return (
     <div className="relative">
@@ -282,6 +321,31 @@ function DepartmentCell({ row, onChanged }: { row: StaffRow; onChanged: () => vo
               {d.label}
             </label>
           ))}
+          {current.length > 0 && (
+            <div className="mt-1 border-t border-brand-grey pt-1">
+              <p className="mb-1 text-[10px] font-bold uppercase text-brand-body">Access Level</p>
+              <div className="flex gap-1">
+                <button
+                  type="button"
+                  onClick={() => setLevel('VIEWER')}
+                  className={`flex-1 rounded-full border-2 px-2 py-1 text-[10px] font-bold ${
+                    currentLevel === 'VIEWER' ? 'border-brand-primary bg-brand-primary text-brand-white' : 'border-brand-grey text-brand-black'
+                  }`}
+                >
+                  👁 Viewer
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLevel('MANAGER')}
+                  className={`flex-1 rounded-full border-2 px-2 py-1 text-[10px] font-bold ${
+                    currentLevel === 'MANAGER' ? 'border-brand-primary bg-brand-primary text-brand-white' : 'border-brand-grey text-brand-black'
+                  }`}
+                >
+                  ✏️ Manager
+                </button>
+              </div>
+            </div>
+          )}
           <button onClick={() => setOpen(false)} className="mt-1 text-[10px] font-bold uppercase text-brand-body hover:underline">
             Close
           </button>

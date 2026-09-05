@@ -5,6 +5,7 @@ import { PrismaService } from '../common/prisma.service';
 import { PointsService } from '../points/points.service';
 import { StreaksService } from '../streaks/streaks.service';
 import { AttendanceService } from '../streaks/attendance.service';
+import { BusinessRulesService } from '../common/business-rules.service';
 import { OrdersGateway } from '../common/orders.gateway';
 import { AchievementsService } from '../achievements/achievements.service';
 import { ShopService } from '../shop/shop.service';
@@ -73,15 +74,11 @@ interface CreateOrderInput {
   idempotencyKey?: string;
 }
 
-// Loyalty points formula: take the purchase amount, drop the last
-// digit (i.e. divide by 10 and floor), then double it. So ₹150 → 15 →
-// 30 points; ₹499 → 49 → 98 points. Deliberately not "₹1 = 1 point" —
-// this rate (roughly 20 points per ₹100, about 2% of spend) rewards
-// higher spending while staying trivially easy for a customer to
-// estimate in their head at checkout.
-function calculateLoyaltyPoints(purchaseRs: number): number {
-  return Math.floor(purchaseRs / 10) * 2;
-}
+// Loyalty points formula — admin-configurable via BusinessRulesService
+// (see common/business-rules.service.ts and grantOrderRewards below).
+// The defaults there (÷10 then ×2) match exactly what this system
+// always shipped with, so nothing changes for anyone who hasn't
+// visited the new business-rules settings screen.
 
 @Injectable()
 export class OrdersService {
@@ -97,6 +94,7 @@ export class OrdersService {
     private inventory: InventoryService,
     private notificationCenter: NotificationCenterService,
     private wallet: WalletService,
+    private businessRules: BusinessRulesService,
   ) {}
 
   async create(input: CreateOrderInput) {
@@ -531,7 +529,8 @@ export class OrdersService {
    * Must be called from within an active transaction.
    */
   async grantOrderRewards(tx: any, orderId: string, customerId: string, totalProteinG: number, totalRs: number) {
-    const earnedPoints = calculateLoyaltyPoints(totalRs);
+    const rules = await this.businessRules.getRules();
+    const earnedPoints = this.businessRules.calculateLoyaltyPoints(totalRs, rules);
     if (earnedPoints > 0) {
       await this.points.award(tx, {
         customerId,
@@ -716,6 +715,24 @@ export class OrdersService {
   }
 
   /**
+   * Deliberately the loosest validation of any order-mutating method
+   * in this file — a customer should be able to set this literally any
+   * time between placing the order and it being delivered (including
+   * tapping a push notification button before the app has even fully
+   * loaded), and it's purely informational for the rider, never gates
+   * anything else. Only real ownership and "hasn't been delivered yet"
+   * are enforced.
+   */
+  async setDeliveryPreference(customerId: string, orderId: string, preference: 'DONT_RING_BELL' | 'LEAVE_AT_DOOR') {
+    const order = await this.prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { deliveryOrder: true } });
+    if (order.customerId !== customerId) throw new ForbiddenException('This order does not belong to you');
+    if (!order.deliveryOrder) throw new BadRequestException('This order has no delivery to set a preference for');
+    if (order.status === 'DELIVERED') throw new BadRequestException('This order has already been delivered');
+
+    return this.prisma.deliveryOrder.update({ where: { id: order.deliveryOrder.id }, data: { deliveryPreference: preference } });
+  }
+
+  /**
    * A real notification fires at every meaningful stage — not just once
    * at order confirmation. This was a genuine gap: the live status
    * stepper updated in real time over the socket, but nothing ever told
@@ -746,7 +763,21 @@ export class OrdersService {
     const message = messages[status];
     if (!message) return; // RECEIVED/CANCELLED/FAILED etc. are either covered elsewhere or not customer-facing milestones
 
-    await this.notificationCenter.notifyCustomer(order.customerId, 'ORDER_UPDATE', message.title, message.body);
+    // Action buttons only make sense while the rider is genuinely en
+    // route — by the time an order has ARRIVED or been DELIVERED,
+    // "don't ring the bell" is too late to matter.
+    const pushExtras =
+      status === 'OUT_FOR_DELIVERY'
+        ? {
+            actions: [
+              { action: 'DONT_RING_BELL', title: "Don't ring the bell" },
+              { action: 'LEAVE_AT_DOOR', title: 'Leave at door' },
+            ],
+            data: { orderId, url: `/orders?highlight=${orderId}` },
+          }
+        : undefined;
+
+    await this.notificationCenter.notifyCustomer(order.customerId, 'ORDER_UPDATE', message.title, message.body, pushExtras);
   }
 
   async updateStatus(orderId: string, status: any) {

@@ -23,14 +23,23 @@ function makePrisma(overrides: Partial<any> = {}) {
 function mockFetchOk(replyText = 'Try the Chocolate Shake — 30g protein! 🐼') {
   global.fetch = jest.fn().mockResolvedValue({
     ok: true,
-    json: async () => ({ content: [{ type: 'text', text: replyText }] }),
+    json: async () => ({ candidates: [{ content: { parts: [{ text: replyText }] } }] }),
   }) as any;
+}
+
+// Small helper — every test needs to reach into the Gemini request
+// body's systemInstruction text, which is nested differently than
+// Anthropic's flat "system" string was.
+function systemInstructionText(): string {
+  const fetchCall = (global.fetch as jest.Mock).mock.calls[0];
+  const body = JSON.parse(fetchCall[1].body);
+  return body.systemInstruction.parts[0].text;
 }
 
 describe('AiService.chat — basic behavior', () => {
   const OLD_ENV = process.env;
   beforeEach(() => {
-    process.env = { ...OLD_ENV, ANTHROPIC_API_KEY: 'test-key' };
+    process.env = { ...OLD_ENV, GEMINI_API_KEY: 'test-key' };
   });
   afterEach(() => {
     process.env = OLD_ENV;
@@ -42,8 +51,8 @@ describe('AiService.chat — basic behavior', () => {
     await expect(service.chat('cust-1', [])).rejects.toThrow(BadRequestException);
   });
 
-  it('throws if ANTHROPIC_API_KEY is not configured', async () => {
-    delete process.env.ANTHROPIC_API_KEY;
+  it('throws if GEMINI_API_KEY is not configured', async () => {
+    delete process.env.GEMINI_API_KEY;
     const service = new AiService(makePrisma());
     await expect(service.chat('cust-1', [{ role: 'user', content: 'hi' }])).rejects.toThrow(
       InternalServerErrorException,
@@ -57,6 +66,42 @@ describe('AiService.chat — basic behavior', () => {
     const result = await service.chat('cust-1', [{ role: 'user', content: 'What has the most protein?' }]);
 
     expect(result).toEqual({ reply: 'Here is a suggestion 🐼' });
+  });
+
+  it('sends the real API key in the x-goog-api-key header, not as a URL param or Anthropic-style header', async () => {
+    mockFetchOk();
+    const service = new AiService(makePrisma());
+
+    await service.chat('cust-1', [{ role: 'user', content: 'hi' }]);
+
+    const fetchCall = (global.fetch as jest.Mock).mock.calls[0];
+    expect(fetchCall[0]).toContain('generativelanguage.googleapis.com');
+    expect(fetchCall[1].headers['x-goog-api-key']).toBe('test-key');
+  });
+
+  it('maps an "assistant" turn to Gemini\'s "model" role, not "assistant"', async () => {
+    mockFetchOk();
+    const service = new AiService(makePrisma());
+
+    await service.chat('cust-1', [
+      { role: 'user', content: 'Hi' },
+      { role: 'assistant', content: 'Hello! How can I help?' },
+      { role: 'user', content: 'What has protein?' },
+    ]);
+
+    const fetchCall = (global.fetch as jest.Mock).mock.calls[0];
+    const body = JSON.parse(fetchCall[1].body);
+    expect(body.contents[1].role).toBe('model');
+    expect(body.contents[0].role).toBe('user');
+  });
+
+  it('returns an empty reply, not a crash, when the response has no candidates at all (e.g. blocked by a safety filter)', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ candidates: [] }) }) as any;
+    const service = new AiService(makePrisma());
+
+    const result = await service.chat('cust-1', [{ role: 'user', content: 'hi' }]);
+
+    expect(result).toEqual({ reply: '' });
   });
 
   it('throws when the API call fails', async () => {
@@ -82,7 +127,7 @@ describe('AiService.chat — basic behavior', () => {
 describe('AiService.chat — medical risk detection', () => {
   const OLD_ENV = process.env;
   beforeEach(() => {
-    process.env = { ...OLD_ENV, ANTHROPIC_API_KEY: 'test-key' };
+    process.env = { ...OLD_ENV, GEMINI_API_KEY: 'test-key' };
     mockFetchOk();
   });
   afterEach(() => {
@@ -151,10 +196,9 @@ describe('AiService.chat — medical risk detection', () => {
 
     await service.chat('cust-1', [{ role: 'user', content: 'I am pregnant, what should I eat?' }]);
 
-    const fetchCall = (global.fetch as jest.Mock).mock.calls[0];
-    const body = JSON.parse(fetchCall[1].body);
-    expect(body.system).toContain('IMPORTANT');
-    expect(body.system).toContain('PREGNANCY');
+    const text = systemInstructionText();
+    expect(text).toContain('IMPORTANT');
+    expect(text).toContain('PREGNANCY');
   });
 
   it('does not add the reinforced reminder block for an ordinary question', async () => {
@@ -163,9 +207,8 @@ describe('AiService.chat — medical risk detection', () => {
 
     await service.chat('cust-1', [{ role: 'user', content: 'What is on the menu today?' }]);
 
-    const fetchCall = (global.fetch as jest.Mock).mock.calls[0];
-    const body = JSON.parse(fetchCall[1].body);
-    expect(body.system).not.toContain('IMPORTANT — the customer');
+    const text = systemInstructionText();
+    expect(text).not.toContain('IMPORTANT — the customer');
   });
 
   it('never blocks the chat response even if logging the safety flag fails', async () => {
@@ -184,17 +227,16 @@ describe('AiService.chat — medical risk detection', () => {
 
     await service.chat('cust-1', [{ role: 'user', content: 'What has the most protein?' }]);
 
-    const fetchCall = (global.fetch as jest.Mock).mock.calls[0];
-    const body = JSON.parse(fetchCall[1].body);
-    expect(body.system).toContain('MEDICAL SAFETY');
-    expect(body.system.toLowerCase()).toContain('pediatrician');
+    const text = systemInstructionText();
+    expect(text).toContain('MEDICAL SAFETY');
+    expect(text.toLowerCase()).toContain('pediatrician');
   });
 });
 
 describe('AiService.chat — white-label branding', () => {
   const OLD_ENV = process.env;
   beforeEach(() => {
-    process.env = { ...OLD_ENV, ANTHROPIC_API_KEY: 'test-key' };
+    process.env = { ...OLD_ENV, GEMINI_API_KEY: 'test-key' };
     mockFetchOk();
   });
   afterEach(() => {
@@ -209,10 +251,9 @@ describe('AiService.chat — white-label branding', () => {
 
     await service.chat('cust-1', [{ role: 'user', content: 'What is on the menu?' }]);
 
-    const fetchCall = (global.fetch as jest.Mock).mock.calls[0];
-    const body = JSON.parse(fetchCall[1].body);
-    expect(body.system).toContain('Iron Fuel');
-    expect(body.system).not.toContain('Protein Panda');
+    const text = systemInstructionText();
+    expect(text).toContain('Iron Fuel');
+    expect(text).not.toContain('Protein Panda');
   });
 
   it('falls back to "Protein Panda" if shop settings have never been configured', async () => {
@@ -222,8 +263,7 @@ describe('AiService.chat — white-label branding', () => {
 
     await service.chat('cust-1', [{ role: 'user', content: 'What is on the menu?' }]);
 
-    const fetchCall = (global.fetch as jest.Mock).mock.calls[0];
-    const body = JSON.parse(fetchCall[1].body);
-    expect(body.system).toContain('Protein Panda');
+    const text = systemInstructionText();
+    expect(text).toContain('Protein Panda');
   });
 });

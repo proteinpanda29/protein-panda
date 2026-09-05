@@ -59,7 +59,7 @@ export class PushNotificationService {
    * e.g. after being uninstalled) is cleaned up automatically rather
    * than left to fail silently forever on every future send.
    */
-  async sendToCustomer(customerId: string, payload: { title: string; body: string; url?: string }): Promise<void> {
+  async sendToCustomer(customerId: string, payload: { title: string; body: string; url?: string; actions?: { action: string; title: string }[]; data?: Record<string, unknown> }): Promise<void> {
     if (!this.isConfigured()) {
       this.logger.warn(`Push not sent (VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY not configured): "${payload.title}" to customer ${customerId}`);
       return;

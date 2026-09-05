@@ -35,11 +35,13 @@ const navItems: { label: string; href: string; departments?: (string | null)[] }
   { label: 'Expenses', href: '/admin/expenses', departments: ['FINANCE_MARKETING'] },
   { label: 'Reconciliation', href: '/admin/reconciliation', departments: ['FINANCE_MARKETING'] },
   { label: 'Segments', href: '/admin/segments', departments: ['FINANCE_MARKETING'] },
+  { label: 'Campaigns', href: '/admin/campaigns', departments: ['FINANCE_MARKETING'] },
   { label: 'Analytics', href: '/admin/analytics', departments: ['FINANCE_MARKETING'] },
   { label: 'Announcements', href: '/admin/announcements', departments: ['FINANCE_MARKETING'] },
   { label: 'AI Safety', href: '/admin/ai-safety', departments: [null] },
   { label: 'Staff Accounts', href: '/admin/staff', departments: [null] },
   { label: 'Shop Settings', href: '/admin/settings', departments: [null] },
+  { label: 'Business Rules', href: '/admin/business-rules', departments: [null] },
   { label: 'Audit Log', href: '/admin/audit-log', departments: [null] },
 ];
 

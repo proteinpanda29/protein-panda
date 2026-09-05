@@ -25,6 +25,7 @@ interface LowStockItem {
 export default function AdminOverviewPage() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [lowStock, setLowStock] = useState<LowStockItem[]>([]);
+  const [myDashboard, setMyDashboard] = useState<{ department: string; title: string; stats: { label: string; value: string }[] }[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState<boolean | null>(null);
   const [toggling, setToggling] = useState(false);
@@ -37,6 +38,9 @@ export default function AdminOverviewPage() {
       })
       .catch((err) => setError(err.message));
     api.getShopStatus().then((s) => setIsOpen(s.isOpen)).catch(() => undefined);
+    // Returns [] for the Owner automatically (they get the fuller
+    // overview below instead) — no need to check department here at all.
+    api.adminMyDashboard().then(setMyDashboard).catch(() => undefined);
   }, []);
 
   const toggleShop = async () => {
@@ -78,6 +82,24 @@ export default function AdminOverviewPage() {
           </button>
         )}
       </div>
+
+      {myDashboard.length > 0 && (
+        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {myDashboard.map((section) => (
+            <div key={section.department} className="rounded-2xl border border-brand-grey bg-brand-white p-5">
+              <h2 className="mb-3 text-xs font-bold uppercase tracking-wide text-brand-body">{section.title}</h2>
+              <div className="grid grid-cols-2 gap-3">
+                {section.stats.map((stat) => (
+                  <div key={stat.label}>
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-brand-body">{stat.label}</p>
+                    <p className="text-lg font-bold text-brand-black">{stat.value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {overview.pendingOrderCount > 0 && (
         <a

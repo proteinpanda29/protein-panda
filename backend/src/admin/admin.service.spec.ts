@@ -25,19 +25,22 @@ function makeHarness() {
     productAllergen: { deleteMany: jest.fn(), createMany: jest.fn(), findMany: jest.fn() },
     productAddon: { create: jest.fn(), update: jest.fn(), delete: jest.fn() },
     productIngredient: { upsert: jest.fn(), delete: jest.fn() },
-    reward: { findMany: jest.fn(), create: jest.fn(), update: jest.fn() },
+    reward: { findMany: jest.fn(), create: jest.fn(), update: jest.fn(), findUnique: jest.fn() },
     aiSafetyFlag: { findMany: jest.fn() },
     game: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
     gameLevel: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn(), delete: jest.fn() },
-    coupon: { findMany: jest.fn(), create: jest.fn(), update: jest.fn() },
+    coupon: { findMany: jest.fn(), create: jest.fn(), update: jest.fn(), findUnique: jest.fn() },
     $transaction: jest.fn().mockImplementation((arg: any) => (typeof arg === 'function' ? arg(prisma) : Promise.all(arg))),
   } as any;
   const orders = { grantOrderRewards: jest.fn().mockResolvedValue(undefined), notifyStatusChange: jest.fn().mockResolvedValue(undefined) } as any;
   const gateway = { emitOrderStatusUpdate: jest.fn() } as any;
   const auditLog = { record: jest.fn().mockResolvedValue(undefined) } as any;
   const businessDayLock = { assertNotClosed: jest.fn().mockResolvedValue(undefined), isTodayClosed: jest.fn().mockResolvedValue(false) } as any;
-  const service = new AdminService(prisma, orders, gateway, auditLog, businessDayLock);
-  return { service, prisma, gateway, orders, auditLog, businessDayLock };
+  const segments = { getSegment: jest.fn().mockResolvedValue([]) } as any;
+  const expensesService = { getExpenseSummary: jest.fn().mockResolvedValue({ totalRs: 0, byCategory: {} }) } as any;
+  const suppliersService = { listPurchaseRequests: jest.fn().mockResolvedValue([]) } as any;
+  const service = new AdminService(prisma, orders, gateway, auditLog, businessDayLock, segments, expensesService, suppliersService);
+  return { service, prisma, gateway, orders, auditLog, businessDayLock, segments, expensesService, suppliersService };
 }
 
 describe('AdminService.getCustomerDetail — Customer 360', () => {
@@ -818,6 +821,42 @@ describe('AdminService.recordWastage', () => {
       data: { inventoryItemId: 'inv-1', batchId: 'batch-1', type: 'WASTAGE', quantity: -4, note: 'Spoiled — left out overnight' },
     });
   });
+
+  it('records a real audit log entry when an actor is given, naming the ingredient, quantity, and reason', async () => {
+    const { service, prisma, auditLog } = makeHarness();
+    prisma.ingredientBatch.findUniqueOrThrow.mockResolvedValue({
+      id: 'batch-1',
+      ingredientId: 'ing-1',
+      quantityRemaining: 10,
+      ingredient: { name: 'Whey Protein', unit: 'g', stock: { id: 'inv-1' } },
+    });
+
+    await service.recordWastage('batch-1', 4, 'Spoiled — left out overnight', 'admin-user-1', 'ADMIN');
+
+    expect(auditLog.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorUserId: 'admin-user-1',
+        action: 'INVENTORY_WASTAGE_RECORDED',
+        entityType: 'IngredientBatch',
+        entityId: 'batch-1',
+        summary: expect.stringContaining('Whey Protein'),
+      }),
+    );
+  });
+
+  it('does not log anything when no actor is given at all', async () => {
+    const { service, prisma, auditLog } = makeHarness();
+    prisma.ingredientBatch.findUniqueOrThrow.mockResolvedValue({
+      id: 'batch-1',
+      ingredientId: 'ing-1',
+      quantityRemaining: 10,
+      ingredient: { name: 'Whey Protein', unit: 'g', stock: { id: 'inv-1' } },
+    });
+
+    await service.recordWastage('batch-1', 4, 'Spoiled');
+
+    expect(auditLog.record).not.toHaveBeenCalled();
+  });
 });
 
 describe('AdminService.listExpiringBatches', () => {
@@ -1063,6 +1102,47 @@ describe('AdminService.createReward', () => {
   });
 });
 
+describe('AdminService.updateReward', () => {
+  it('records a real audit log entry when the points cost actually changes', async () => {
+    const { service, prisma, auditLog } = makeHarness();
+    prisma.reward.findUnique.mockResolvedValue({ name: 'Free Add-on', pointsCost: 100 });
+    prisma.reward.update.mockResolvedValue({});
+
+    await service.updateReward('reward-1', { pointsCost: 150 }, 'admin-user-1', 'ADMIN');
+
+    expect(auditLog.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorUserId: 'admin-user-1',
+        action: 'REWARD_COST_CHANGED',
+        entityType: 'Reward',
+        entityId: 'reward-1',
+        summary: expect.stringContaining('100 to 150'),
+        metadata: { from: 100, to: 150 },
+      }),
+    );
+  });
+
+  it('does not log anything when the points cost is unchanged', async () => {
+    const { service, prisma, auditLog } = makeHarness();
+    prisma.reward.findUnique.mockResolvedValue({ name: 'Free Add-on', pointsCost: 100 });
+    prisma.reward.update.mockResolvedValue({});
+
+    await service.updateReward('reward-1', { pointsCost: 100 }, 'admin-user-1', 'ADMIN');
+
+    expect(auditLog.record).not.toHaveBeenCalled();
+  });
+
+  it('does not even look up the old cost when pointsCost is not part of this update at all', async () => {
+    const { service, prisma, auditLog } = makeHarness();
+    prisma.reward.update.mockResolvedValue({});
+
+    await service.updateReward('reward-1', { name: 'New Name' }, 'admin-user-1', 'ADMIN');
+
+    expect(prisma.reward.findUnique).not.toHaveBeenCalled();
+    expect(auditLog.record).not.toHaveBeenCalled();
+  });
+});
+
 describe('AdminService.createCoupon', () => {
   it('rejects a coupon with neither a flat nor percentage discount', async () => {
     const { service } = makeHarness();
@@ -1104,6 +1184,50 @@ describe('AdminService.updateCoupon', () => {
     const call = prisma.coupon.update.mock.calls[0][0];
     expect(call.data.validUntil).toBeInstanceOf(Date);
     expect(call.data.isActive).toBe(false);
+  });
+
+  it('refuses to change a coupon\'s active status once today\'s business day has been closed', async () => {
+    const { service, businessDayLock } = makeHarness();
+    businessDayLock.assertNotClosed.mockRejectedValue(new Error("Today's business day has been closed"));
+
+    await expect(service.updateCoupon('coupon-1', { isActive: false })).rejects.toThrow(/business day has been closed/);
+  });
+
+  it('never checks the business day lock for a non-status coupon edit (e.g. changing the description)', async () => {
+    const { service, prisma, businessDayLock } = makeHarness();
+    prisma.coupon.update.mockResolvedValue({});
+
+    await service.updateCoupon('coupon-1', { description: 'New description' });
+
+    expect(businessDayLock.assertNotClosed).not.toHaveBeenCalled();
+  });
+
+  it('records a real audit log entry when the coupon is actually activated or deactivated', async () => {
+    const { service, prisma, auditLog } = makeHarness();
+    prisma.coupon.findUnique.mockResolvedValue({ code: 'WELCOME10', isActive: true });
+    prisma.coupon.update.mockResolvedValue({});
+
+    await service.updateCoupon('coupon-1', { isActive: false }, 'admin-user-1', 'ADMIN');
+
+    expect(auditLog.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorUserId: 'admin-user-1',
+        action: 'COUPON_DEACTIVATED',
+        entityType: 'Coupon',
+        entityId: 'coupon-1',
+        summary: expect.stringContaining('WELCOME10'),
+      }),
+    );
+  });
+
+  it('does not log anything when the status did not actually change', async () => {
+    const { service, prisma, auditLog } = makeHarness();
+    prisma.coupon.findUnique.mockResolvedValue({ code: 'WELCOME10', isActive: false });
+    prisma.coupon.update.mockResolvedValue({});
+
+    await service.updateCoupon('coupon-1', { isActive: false }, 'admin-user-1', 'ADMIN');
+
+    expect(auditLog.record).not.toHaveBeenCalled();
   });
 
   it('leaves validUntil untouched when not provided', async () => {
@@ -1369,3 +1493,80 @@ describe('AdminService.listAiSafetyFlags', () => {
     });
   });
 });
+
+describe('AdminService.getMyDashboard', () => {
+  it('returns an empty array for the Owner (no departments) — they use the fuller overview instead', async () => {
+    const { service } = makeHarness();
+
+    const result = await service.getMyDashboard([]);
+
+    expect(result).toEqual([]);
+  });
+
+  it('returns a real Sales section built from the same data as the daily overview', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.order.findMany.mockResolvedValue([{ totalRs: 500, channel: 'WEBSITE', status: 'RECEIVED', payment: null }]);
+    prisma.customer.count.mockResolvedValue(3);
+
+    const result = await service.getMyDashboard(['SALES']);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual(
+      expect.objectContaining({
+        department: 'SALES',
+        stats: expect.arrayContaining([expect.objectContaining({ label: 'New Customers', value: '3' })]),
+      }),
+    );
+  });
+
+  it('returns a real Supply Chain section using live low-stock, expiring-batch, and pending-request counts', async () => {
+    const { service, prisma, suppliersService } = makeHarness();
+    prisma.inventoryItem = { findMany: jest.fn().mockResolvedValue([{ id: 'inv-1' }, { id: 'inv-2' }]) } as any;
+    prisma.ingredientBatch = { findMany: jest.fn().mockResolvedValue([{ id: 'batch-1' }]) } as any;
+    suppliersService.listPurchaseRequests.mockResolvedValue([{ id: 'req-1' }, { id: 'req-2' }, { id: 'req-3' }]);
+
+    const result = await service.getMyDashboard(['SUPPLY_CHAIN']);
+
+    expect(result[0].stats).toEqual(
+      expect.arrayContaining([expect.objectContaining({ label: 'Pending Purchase Requests', value: '3' })]),
+    );
+  });
+
+  it('returns a real Loyalty section from live segment computations, not placeholder numbers', async () => {
+    const { service, segments } = makeHarness();
+    segments.getSegment.mockImplementation((type: string) =>
+      Promise.resolve(type === 'ACTIVE_MEMBERS' ? [{ id: 'c1' }, { id: 'c2' }] : [{ id: 'c3' }]),
+    );
+
+    const result = await service.getMyDashboard(['LOYALTY']);
+
+    expect(result[0].stats).toEqual(expect.arrayContaining([expect.objectContaining({ label: 'Active Members', value: '2' })]));
+  });
+
+  it('returns a real Finance section using the live weekly expense summary', async () => {
+    const { service, expensesService } = makeHarness();
+    expensesService.getExpenseSummary.mockResolvedValue({ totalRs: 4280, byCategory: {} });
+
+    const result = await service.getMyDashboard(['FINANCE_MARKETING']);
+
+    expect(result[0].stats).toEqual(expect.arrayContaining([expect.objectContaining({ value: '₹4,280' })]));
+  });
+
+  it('returns one section per department when a staff member holds more than one', async () => {
+    const { service } = makeHarness();
+
+    const result = await service.getMyDashboard(['SALES', 'LOYALTY']);
+
+    expect(result.map((s: any) => s.department)).toEqual(['SALES', 'LOYALTY']);
+  });
+
+  it('silently skips an unrecognized department string rather than crashing', async () => {
+    const { service } = makeHarness();
+
+    const result = await service.getMyDashboard(['SALES', 'NOT_A_REAL_DEPARTMENT']);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].department).toBe('SALES');
+  });
+});
+

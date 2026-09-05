@@ -6,11 +6,13 @@ interface ChatMessage {
   content: string;
 }
 
-// claude-sonnet-5 — current generation, and at introductory pricing
-// (~$2/$10 per million tokens) as of this writing, cheaper than the
-// previous Sonnet generation. Check console.anthropic.com for current
-// rates before deploying, since pricing changes over time.
-const MODEL = 'claude-sonnet-5';
+// gemini-pro-latest — an alias Google keeps pointed at their current
+// best Pro model (as of this writing, gemini-3-pro-preview), so this
+// never needs manual updating as new Gemini versions ship. Requires
+// billing enabled on the API key — the free AI Studio tier only covers
+// Flash/Flash-Lite models, not Pro. Check ai.google.dev/gemini-api/docs/pricing
+// for current rates before deploying.
+const MODEL = 'gemini-pro-latest';
 const MAX_HISTORY_MESSAGES = 20; // keep requests bounded; frontend can still keep full history locally
 
 /**
@@ -42,9 +44,9 @@ export class AiService {
   async chat(customerId: string, messages: ChatMessage[]) {
     if (!messages.length) throw new BadRequestException('messages must not be empty');
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      throw new InternalServerErrorException('AI assistant is not configured (ANTHROPIC_API_KEY missing)');
+      throw new InternalServerErrorException('AI assistant is not configured (GEMINI_API_KEY missing)');
     }
 
     const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')?.content ?? '';
@@ -62,18 +64,25 @@ export class AiService {
     const systemPrompt = await this.buildSystemPrompt(customerId, riskCategories);
     const trimmedHistory = messages.slice(-MAX_HISTORY_MESSAGES);
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    // Gemini's request shape differs from Anthropic's in a few
+    // specific ways: the API key goes in a header (not the body),
+    // conversation turns are called "contents" with role "model"
+    // (not "assistant") for the AI's own turns, and the system prompt
+    // is a separate top-level "systemInstruction" field rather than a
+    // "system" string alongside messages.
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
+        'x-goog-api-key': apiKey,
       },
       body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 500,
-        system: systemPrompt,
-        messages: trimmedHistory,
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: trimmedHistory.map((m) => ({
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: m.content }],
+        })),
+        generationConfig: { maxOutputTokens: 500 },
       }),
     });
 
@@ -83,7 +92,11 @@ export class AiService {
     }
 
     const data = await response.json();
-    const reply = data.content?.find((block: any) => block.type === 'text')?.text ?? '';
+    // A blocked response (safety filter, recitation, etc.) has no
+    // parts at all rather than an HTTP error — surfaced as a normal,
+    // if unhelpful, reply rather than a crash, since the app's own
+    // medical-safety system prompt above is the real safety net here.
+    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
     return { reply };
   }
 

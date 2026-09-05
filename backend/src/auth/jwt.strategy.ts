@@ -76,8 +76,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       // Re-fetched live, not read from the token — see the departments
       // field's docstring above for why this can't be trusted from the
       // JWT payload alone.
-      const staff = await this.prisma.staff.findUnique({ where: { userId: payload.sub }, select: { departments: true } });
-      return { ...base, departments: staff?.departments ?? [] };
+      const staff = await this.prisma.staff.findUnique({ where: { userId: payload.sub }, select: { departments: true, permissionLevel: true } });
+      return { ...base, departments: staff?.departments ?? [], permissionLevel: staff?.permissionLevel ?? 'MANAGER' };
     }
 
     return base;

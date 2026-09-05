@@ -191,9 +191,11 @@ product catalog (with nutrition + allergen tags pulled fresh from the DB
 on every request — never hallucinated). The system prompt explicitly
 forbids recommending anything matching a recorded allergy, and instructs
 the model to redirect medical questions to a real doctor/dietitian rather
-than diagnosing. Requires `ANTHROPIC_API_KEY` in `backend/.env` (get one
-at console.anthropic.com) — without it, the endpoint returns a clear
-"not configured" error rather than failing silently. Frontend: `/assistant`.
+than diagnosing. Requires `GEMINI_API_KEY` in `backend/.env` (get one
+at aistudio.google.com — the Pro model needs billing enabled on that
+key; the free tier only covers Flash/Flash-Lite) — without it, the
+endpoint returns a clear "not configured" error rather than failing
+silently. Frontend: `/assistant`.
 
 ## Shop open/close status
 

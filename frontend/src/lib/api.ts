@@ -108,6 +108,7 @@ export const api = {
 
   // Admin
   adminOverview: () => request('/admin/overview/today'),
+  adminMyDashboard: () => request('/admin/my-dashboard'),
   adminLowStock: () => request('/admin/inventory/low-stock'),
   adminInventory: () => request('/admin/inventory'),
   adminStockMovements: () => request('/admin/inventory/movements'),
@@ -195,6 +196,8 @@ export const api = {
   adminCreateDeliveryZone: (payload: { name: string; maxDistanceKm: number; feeRs: number; estimatedMinutes?: number }) =>
     request('/shop/delivery-zones', { method: 'POST', body: JSON.stringify(payload) }),
   adminUpdateDeliveryZone: (id: string, payload: unknown) => request(`/shop/delivery-zones/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  adminGetBusinessRules: () => request('/admin/business-rules'),
+  adminUpdateBusinessRules: (payload: unknown) => request('/admin/business-rules', { method: 'PATCH', body: JSON.stringify(payload) }),
   adminDeleteDeliveryZone: (id: string) => request(`/shop/delivery-zones/${id}`, { method: 'DELETE' }),
   getDeliveryFeeQuote: (lat: number, lng: number) => request(`/shop/delivery-fee-quote?lat=${lat}&lng=${lng}`),
   adminListExpenses: (params?: { category?: string; dateFrom?: string; dateTo?: string }) => {
@@ -206,6 +209,9 @@ export const api = {
   adminDeleteExpense: (id: string) => request(`/admin/expenses/${id}`, { method: 'DELETE' }),
   adminReconciliation: (dateFrom: string, dateTo: string) => request(`/admin/cash/reconciliation?dateFrom=${dateFrom}&dateTo=${dateTo}`),
   adminGetSegment: (type: string) => request(`/admin/segments?type=${type}`),
+  adminListCampaigns: () => request('/admin/campaigns'),
+  adminSendCampaign: (payload: { name: string; segmentType: string; title: string; body: string }) =>
+    request('/admin/campaigns', { method: 'POST', body: JSON.stringify(payload) }),
   adminAuditLog: (params?: { entityType?: string; actorUserId?: string }) => {
     const qs = new URLSearchParams(params as any).toString();
     return request(`/admin/audit-log${qs ? `?${qs}` : ''}`);
@@ -347,6 +353,8 @@ export const api = {
   addProductReview: (productId: string, rating: number, comment?: string, photoUrls?: string[]) =>
     request(`/products/${productId}/reviews`, { method: 'POST', body: JSON.stringify({ rating, comment, photoUrls }) }),
   tipDeliveryPerson: (orderId: string, amountRs: number) => request(`/orders/${orderId}/tip`, { method: 'POST', body: JSON.stringify({ amountRs }) }),
+  setDeliveryPreference: (orderId: string, preference: 'DONT_RING_BELL' | 'LEAVE_AT_DOOR') =>
+    request(`/orders/${orderId}/delivery-preference`, { method: 'POST', body: JSON.stringify({ preference }) }),
   getReviewUploadSignature: () => request('/products/reviews/upload-signature'),
   rateDelivery: (orderId: string, rating: number, tags: string[], comment?: string) =>
     request(`/orders/${orderId}/delivery-rating`, { method: 'POST', body: JSON.stringify({ rating, tags, comment }) }),

@@ -5,6 +5,7 @@ import { PrismaService } from '../common/prisma.service';
 import { PointsService } from '../points/points.service';
 import { StreaksService } from '../streaks/streaks.service';
 import { AttendanceService } from '../streaks/attendance.service';
+import { BusinessRulesService } from '../common/business-rules.service';
 import { RealtimeModule } from '../common/realtime.module';
 import { RedisService } from '../common/redis.service';
 import { AchievementsModule } from '../achievements/achievements.module';
@@ -17,7 +18,7 @@ import { WalletService } from '../customers/wallet.service';
 @Module({
   imports: [RealtimeModule, AchievementsModule, ShopModule, BillingModule, InventoryModule, NotificationCenterModule],
   controllers: [OrdersController],
-  providers: [OrdersService, PrismaService, PointsService, StreaksService, AttendanceService, RedisService, WalletService],
+  providers: [OrdersService, PrismaService, PointsService, StreaksService, AttendanceService, RedisService, WalletService, BusinessRulesService],
   exports: [OrdersService],
 })
 export class OrdersModule {}

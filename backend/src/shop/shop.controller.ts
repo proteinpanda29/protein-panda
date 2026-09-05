@@ -5,6 +5,7 @@ import { RolesGuard } from '../common/roles.guard';
 import { Roles } from '../common/roles.decorator';
 import { OwnerOnlyGuard } from '../common/owner-only.guard';
 import { DepartmentGuard } from '../common/department.guard';
+import { PermissionLevelGuard } from '../common/permission-level.guard';
 import { Departments } from '../common/departments.decorator';
 import { ShopService } from './shop.service';
 
@@ -41,7 +42,7 @@ export class ShopController {
   }
 
   @Get('delivery-zones')
-  @UseGuards(JwtAuthGuard, RolesGuard, DepartmentGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, DepartmentGuard, PermissionLevelGuard)
   @Roles(Role.ADMIN)
   @Departments(StaffDepartment.DELIVERY_LOGISTICS)
   listDeliveryZones() {
@@ -49,7 +50,7 @@ export class ShopController {
   }
 
   @Post('delivery-zones')
-  @UseGuards(JwtAuthGuard, RolesGuard, DepartmentGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, DepartmentGuard, PermissionLevelGuard)
   @Roles(Role.ADMIN)
   @Departments(StaffDepartment.DELIVERY_LOGISTICS)
   createDeliveryZone(@Body() body: { name: string; maxDistanceKm: number; feeRs: number; estimatedMinutes?: number }) {
@@ -57,7 +58,7 @@ export class ShopController {
   }
 
   @Patch('delivery-zones/:id')
-  @UseGuards(JwtAuthGuard, RolesGuard, DepartmentGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, DepartmentGuard, PermissionLevelGuard)
   @Roles(Role.ADMIN)
   @Departments(StaffDepartment.DELIVERY_LOGISTICS)
   updateDeliveryZone(@Param('id') id: string, @Body() body: any) {
@@ -65,7 +66,7 @@ export class ShopController {
   }
 
   @Delete('delivery-zones/:id')
-  @UseGuards(JwtAuthGuard, RolesGuard, DepartmentGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard, DepartmentGuard, PermissionLevelGuard)
   @Roles(Role.ADMIN)
   @Departments(StaffDepartment.DELIVERY_LOGISTICS)
   deleteDeliveryZone(@Param('id') id: string) {

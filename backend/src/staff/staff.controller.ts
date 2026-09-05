@@ -23,8 +23,8 @@ export class StaffController {
   }
 
   @Patch(':userId')
-  update(@Param('userId') userId: string, @Body() body: any) {
-    return this.staff.updateStaff(userId, body);
+  update(@Req() req: any, @Param('userId') userId: string, @Body() body: any) {
+    return this.staff.updateStaff(userId, body, req.user.userId, req.user.role);
   }
 
   @Patch(':userId/active')

@@ -36,13 +36,24 @@ export class NotificationCenterService {
    * everything the in-app notification center already covers, with no
    * risk of the two silently drifting apart over time.
    */
-  async notifyCustomer(customerId: string, type: 'ORDER_UPDATE' | 'ACHIEVEMENT' | 'ANNOUNCEMENT' | 'SUPPORT_REPLY', title: string, body: string) {
+  async notifyCustomer(
+    customerId: string,
+    type: 'ORDER_UPDATE' | 'ACHIEVEMENT' | 'ANNOUNCEMENT' | 'SUPPORT_REPLY',
+    title: string,
+    body: string,
+    // Optional — only ever set for the specific "out for delivery"
+    // notification, which is the one moment a quick reply actually
+    // matters. Every other call site (order confirmed, achievement
+    // unlocked, etc.) omits these and gets a plain notification exactly
+    // as before.
+    pushExtras?: { actions?: { action: string; title: string }[]; data?: Record<string, unknown> },
+  ) {
     try {
       await this.prisma.notification.create({ data: { customerId, type, title, body } });
     } catch {
       // Swallowed deliberately — see docstring above.
     }
-    this.push.sendToCustomer(customerId, { title, body }).catch(() => undefined);
+    this.push.sendToCustomer(customerId, { title, body, ...pushExtras }).catch(() => undefined);
   }
 
   async markAsRead(customerId: string, notificationId: string) {

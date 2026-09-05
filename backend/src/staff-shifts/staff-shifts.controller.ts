@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../common/roles.guard';
 import { Roles } from '../common/roles.decorator';
 import { DepartmentGuard } from '../common/department.guard';
+import { PermissionLevelGuard } from '../common/permission-level.guard';
 import { Departments } from '../common/departments.decorator';
 import { StaffShiftsService } from './staff-shifts.service';
 
@@ -42,7 +43,7 @@ export class StaffShiftsController {
 // concern — running the shop day-to-day includes knowing who's
 // actually working when.
 @Controller('admin/staff-shifts')
-@UseGuards(JwtAuthGuard, RolesGuard, DepartmentGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, DepartmentGuard, PermissionLevelGuard)
 @Roles(Role.ADMIN)
 @Departments(StaffDepartment.OPERATIONS)
 export class AdminStaffShiftsController {

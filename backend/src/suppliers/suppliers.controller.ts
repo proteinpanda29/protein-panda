@@ -4,11 +4,12 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../common/roles.guard';
 import { Roles } from '../common/roles.decorator';
 import { DepartmentGuard } from '../common/department.guard';
+import { PermissionLevelGuard } from '../common/permission-level.guard';
 import { Departments } from '../common/departments.decorator';
 import { SuppliersService } from './suppliers.service';
 
 @Controller('admin/suppliers')
-@UseGuards(JwtAuthGuard, RolesGuard, DepartmentGuard)
+@UseGuards(JwtAuthGuard, RolesGuard, DepartmentGuard, PermissionLevelGuard)
 @Roles(Role.ADMIN)
 @Departments(StaffDepartment.SUPPLY_CHAIN)
 export class SuppliersController {

@@ -97,6 +97,28 @@ describe('StaffService.createStaff', () => {
       }),
     );
   });
+
+  it('defaults to no explicit permissionLevel when not specified — the Staff schema field\'s own default (MANAGER) applies', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.user.findUnique.mockResolvedValue(null);
+    prisma.user.create.mockResolvedValue({ id: 'user-1' });
+
+    await service.createStaff({ role: 'ADMIN', name: 'Priya', identifier: '+919876543210' });
+
+    const call = prisma.user.create.mock.calls[0][0];
+    expect(call.data.staff.create.permissionLevel).toBeUndefined();
+  });
+
+  it('sets permissionLevel to VIEWER when explicitly requested', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.user.findUnique.mockResolvedValue(null);
+    prisma.user.create.mockResolvedValue({ id: 'user-1' });
+
+    await service.createStaff({ role: 'ADMIN', name: 'Priya', identifier: '+919876543210', permissionLevel: 'VIEWER' });
+
+    const call = prisma.user.create.mock.calls[0][0];
+    expect(call.data.staff.create.permissionLevel).toBe('VIEWER');
+  });
 });
 
 describe('StaffService.updateStaff', () => {
@@ -122,6 +144,54 @@ describe('StaffService.updateStaff', () => {
       where: { id: 'dp-1' },
       data: { name: undefined, vehicleInfo: 'New Bike' },
     });
+  });
+
+  it('records a real audit log entry when departments actually change, naming the real staff member and both old/new lists', async () => {
+    const { service, prisma, auditLog } = makeHarness();
+    prisma.user.findUniqueOrThrow.mockResolvedValue({
+      role: 'ADMIN',
+      staff: { id: 'staff-1', name: 'Priya', departments: ['SALES'] },
+      deliveryPerson: null,
+    });
+
+    await service.updateStaff('user-1', { departments: ['SALES', 'LOYALTY'] as any }, 'admin-user-1', 'ADMIN');
+
+    expect(auditLog.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorUserId: 'admin-user-1',
+        action: 'STAFF_DEPARTMENTS_CHANGED',
+        entityType: 'Staff',
+        entityId: 'staff-1',
+        summary: expect.stringContaining('Priya'),
+        metadata: { from: ['SALES'], to: ['SALES', 'LOYALTY'] },
+      }),
+    );
+  });
+
+  it('does not log anything when the departments list is unchanged (even if reordered)', async () => {
+    const { service, prisma, auditLog } = makeHarness();
+    prisma.user.findUniqueOrThrow.mockResolvedValue({
+      role: 'ADMIN',
+      staff: { id: 'staff-1', name: 'Priya', departments: ['SALES', 'LOYALTY'] },
+      deliveryPerson: null,
+    });
+
+    await service.updateStaff('user-1', { departments: ['LOYALTY', 'SALES'] as any }, 'admin-user-1', 'ADMIN');
+
+    expect(auditLog.record).not.toHaveBeenCalled();
+  });
+
+  it('does not log anything at all when no actor is given', async () => {
+    const { service, prisma, auditLog } = makeHarness();
+    prisma.user.findUniqueOrThrow.mockResolvedValue({
+      role: 'ADMIN',
+      staff: { id: 'staff-1', name: 'Priya', departments: ['SALES'] },
+      deliveryPerson: null,
+    });
+
+    await service.updateStaff('user-1', { departments: ['LOYALTY'] as any });
+
+    expect(auditLog.record).not.toHaveBeenCalled();
   });
 });
 

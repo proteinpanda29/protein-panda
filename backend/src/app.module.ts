@@ -31,6 +31,7 @@ import { SupportTicketsModule } from './support-tickets/support-tickets.module';
 import { CashModule } from './cash/cash.module';
 import { QueueModule } from './queue/queue.module';
 import { AuditLogModule } from './audit-log/audit-log.module';
+import { CampaignsModule } from './customers/campaigns.module';
 import { ExpensesModule } from './expenses/expenses.module';
 
 @Module({
@@ -97,6 +98,7 @@ import { ExpensesModule } from './expenses/expenses.module';
     CashModule,
     QueueModule,
     AuditLogModule,
+    CampaignsModule,
     ExpensesModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

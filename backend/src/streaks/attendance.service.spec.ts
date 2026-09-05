@@ -1,12 +1,15 @@
-import { AttendanceService, MONTHLY_VISIT_TARGET, REQUIRED_CHALLENGES_PER_MONTH } from './attendance.service';
+import { AttendanceService } from './attendance.service';
 
-function makeHarness() {
+const DEFAULT_RULES = { monthlyVisitTarget: 15, requiredChallengesPerMonth: 1 };
+
+function makeHarness(ruleOverrides: Partial<typeof DEFAULT_RULES> = {}) {
   const prisma: any = {
     attendance: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({}), count: jest.fn().mockResolvedValue(0) },
     gameAttempt: { count: jest.fn().mockResolvedValue(0) },
   };
-  const service = new AttendanceService();
-  return { service, prisma };
+  const businessRules = { getRules: jest.fn().mockResolvedValue({ ...DEFAULT_RULES, ...ruleOverrides }) } as any;
+  const service = new AttendanceService(businessRules);
+  return { service, prisma, businessRules };
 }
 
 describe('AttendanceService.recordVisit', () => {
@@ -32,18 +35,27 @@ describe('AttendanceService.recordVisit', () => {
 });
 
 describe('AttendanceService.getMonthlyProgress', () => {
-  it('reports the real target values, matching the department spec exactly (15 visits, 1 challenge)', async () => {
+  it('reports the real, currently-configured target values — the system defaults out of the box', async () => {
     const { service, prisma } = makeHarness();
 
     const result = await service.getMonthlyProgress(prisma, 'cust-1');
 
     expect(result.visitTarget).toBe(15);
     expect(result.challengeTarget).toBe(1);
-    expect(MONTHLY_VISIT_TARGET).toBe(15);
-    expect(REQUIRED_CHALLENGES_PER_MONTH).toBe(1);
   });
 
-  it('is not reward-eligible with 15 visits but zero completed challenges', async () => {
+  it('uses a genuinely different target once the admin has reconfigured it — not the old hardcoded 15', async () => {
+    const { service, prisma } = makeHarness({ monthlyVisitTarget: 20, requiredChallengesPerMonth: 2 });
+    prisma.attendance.count.mockResolvedValue(15);
+
+    const result = await service.getMonthlyProgress(prisma, 'cust-1');
+
+    expect(result.visitTarget).toBe(20);
+    expect(result.challengeTarget).toBe(2);
+    expect(result.visitsComplete).toBe(false); // 15 visits no longer enough once the target is raised to 20
+  });
+
+  it('is not reward-eligible with enough visits but zero completed challenges', async () => {
     const { service, prisma } = makeHarness();
     prisma.attendance.count.mockResolvedValue(15);
     prisma.gameAttempt.count.mockResolvedValue(0);
@@ -55,7 +67,7 @@ describe('AttendanceService.getMonthlyProgress', () => {
     expect(result.rewardEligible).toBe(false);
   });
 
-  it('is not reward-eligible with a completed challenge but only 14 visits', async () => {
+  it('is not reward-eligible with a completed challenge but one visit short of target', async () => {
     const { service, prisma } = makeHarness();
     prisma.attendance.count.mockResolvedValue(14);
     prisma.gameAttempt.count.mockResolvedValue(1);

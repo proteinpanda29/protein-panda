@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../common/roles.guard';
 import { Roles } from '../common/roles.decorator';
 import { DepartmentGuard } from '../common/department.guard';
+import { PermissionLevelGuard } from '../common/permission-level.guard';
 import { Departments } from '../common/departments.decorator';
 import { OrdersService } from './orders.service';
 
@@ -44,8 +45,16 @@ export class OrdersController {
     return this.orders.tipDeliveryPerson(req.user.customerId, id, body.amountRs);
   }
 
+  // Set right from a push notification action button ("Don't ring the
+  // bell" / "Leave at door") — no need to open the app at all.
+  @Post(':id/delivery-preference')
+  @Roles(Role.CUSTOMER)
+  setDeliveryPreference(@Req() req: any, @Param('id') id: string, @Body('preference') preference: 'DONT_RING_BELL' | 'LEAVE_AT_DOOR') {
+    return this.orders.setDeliveryPreference(req.user.customerId, id, preference);
+  }
+
   @Patch(':id/status')
-  @UseGuards(DepartmentGuard)
+  @UseGuards(DepartmentGuard, PermissionLevelGuard)
   @Roles(Role.ADMIN, Role.DELIVERY)
   // This one endpoint carries statuses spanning two departments'
   // legitimate day-to-day use (Operations advancing a kitchen order

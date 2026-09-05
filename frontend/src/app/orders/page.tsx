@@ -78,6 +78,40 @@ export default function OrdersPage() {
 
   useEffect(load, []);
 
+  // Handles both paths from a push notification action button
+  // ("Don't ring the bell" / "Leave at door"): a message relayed from
+  // the service worker when a tab was already open, or a URL query
+  // param when the service worker had to open a fresh tab instead.
+  // Best-effort throughout — a failure here (e.g. token expired) never
+  // blocks the rest of the page from working normally.
+  useEffect(() => {
+    const submitPreference = (orderId: string, preference: string) => {
+      if (preference !== 'DONT_RING_BELL' && preference !== 'LEAVE_AT_DOOR') return;
+      api
+        .setDeliveryPreference(orderId, preference)
+        .then(() => setMessage(preference === 'DONT_RING_BELL' ? "Got it — we won't ring the bell." : "Got it — we'll leave it at the door."))
+        .catch(() => undefined);
+    };
+
+    const params = new URLSearchParams(window.location.search);
+    const highlightOrderId = params.get('highlight');
+    const urlPreference = params.get('setDeliveryPref');
+    if (highlightOrderId && urlPreference) {
+      submitPreference(highlightOrderId, urlPreference);
+      // Clean the query params off the URL so a page refresh doesn't
+      // resubmit the same preference again.
+      window.history.replaceState({}, '', '/orders');
+    }
+
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'DELIVERY_PREFERENCE') {
+        submitPreference(event.data.orderId, event.data.preference);
+      }
+    };
+    navigator.serviceWorker?.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker?.removeEventListener('message', onMessage);
+  }, []);
+
   if (error) {
     return (
       <section className="mx-auto max-w-md px-4 py-16 text-center">
