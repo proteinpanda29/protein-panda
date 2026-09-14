@@ -34,7 +34,7 @@ export class EmailService {
   }
 
   private getFromAddress(): string | undefined {
-    return process.env.ZEPTOMAIL_FROM_EMAIL ?? process.env.SMTP_USER ?? process.env.GMAIL_USER;
+    return process.env.SMTP_FROM_EMAIL ?? process.env.ZEPTOMAIL_FROM_EMAIL ?? process.env.SMTP_USER ?? process.env.GMAIL_USER;
   }
 
   private getMailer(): nodemailer.Transporter | null {
