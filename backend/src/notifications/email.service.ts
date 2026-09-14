@@ -27,6 +27,7 @@ export class EmailService {
 
   isConfigured(): boolean {
     return !!(
+      process.env.RESEND_API_KEY ||
       (process.env.ZEPTOMAIL_API_TOKEN && process.env.ZEPTOMAIL_FROM_EMAIL) ||
       (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) ||
       (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD)
@@ -99,6 +100,36 @@ export class EmailService {
     }
   }
 
+  private async sendViaResendApi(params: { to: string; subject: string; html: string; fromName: string }): Promise<boolean> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+
+    try {
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        },
+        body: JSON.stringify({
+          from: `"${params.fromName}" <${this.getFromAddress()}>`,
+          to: [params.to],
+          subject: params.subject,
+          html: params.html,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        throw new Error(`Resend API responded ${response.status}: ${body}`);
+      }
+      return true;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   /**
    * Never throws — a failed/unconfigured email send should never break
    * whatever triggered it (an order, an OTP request, etc.). Returns
@@ -107,6 +138,15 @@ export class EmailService {
    */
   async send(params: { to: string; subject: string; html: string; text?: string; fromName?: string }): Promise<boolean> {
     const fromName = params.fromName ?? 'Protein Panda';
+
+    if (process.env.RESEND_API_KEY) {
+      try {
+        return await this.sendViaResendApi({ to: params.to, subject: params.subject, html: params.html, fromName });
+      } catch (err) {
+        this.logger.error(`Resend API failed to send to ${params.to}: ${(err as Error).message}`);
+        return false;
+      }
+    }
 
     if (process.env.ZEPTOMAIL_API_TOKEN && process.env.ZEPTOMAIL_FROM_EMAIL) {
       try {
