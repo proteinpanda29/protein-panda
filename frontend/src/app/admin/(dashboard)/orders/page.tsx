@@ -4,16 +4,6 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useOrderUpdates } from '@/lib/useOrderUpdates';
 
-// Injected only by the native Android tablet wrapper app — a plain
-// browser (or any device without that wrapper) simply won't have this,
-// which is exactly how printReceiptViaBluetooth() below tells the two
-// cases apart.
-declare global {
-  interface Window {
-    AndroidPrinter?: { printReceipt: (text: string) => void };
-  }
-}
-
 function buildReceiptText(order: {
   orderNumber: string;
   createdAt: string;
@@ -41,11 +31,17 @@ function buildReceiptText(order: {
 
 function printReceiptViaBluetooth(order: Parameters<typeof buildReceiptText>[0]) {
   const receiptText = buildReceiptText(order);
-  if (window.AndroidPrinter?.printReceipt) {
-    window.AndroidPrinter.printReceipt(receiptText);
-  } else {
-    alert('Bluetooth printing only works from the printer tablet app, not a regular browser. Open this page on that tablet to print.');
-  }
+  // The Simple Bluetooth Printer app registers this custom URL scheme
+  // as a "deep link" — Android hands off any navigation to a
+  // btprinter:// address straight to that app, and this works from a
+  // completely normal mobile browser on the tablet. No native wrapper
+  // app is needed at all; this only works on the Android tablet that
+  // actually has the printer app installed and paired — on a desktop
+  // or any device without it, Android/the browser will simply do
+  // nothing or show "can't open this link", which is expected.
+  const params = new URLSearchParams();
+  params.append('content', receiptText);
+  window.location.href = `btprinter://print?${params.toString()}`;
 }
 
 const STATUS_FLOW = ['RECEIVED', 'ACCEPTED', 'PREPARING', 'READY', 'ASSIGNED', 'OUT_FOR_DELIVERY', 'DELIVERED'];
