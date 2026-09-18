@@ -4,6 +4,50 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useOrderUpdates } from '@/lib/useOrderUpdates';
 
+// Injected only by the native Android tablet wrapper app — a plain
+// browser (or any device without that wrapper) simply won't have this,
+// which is exactly how printReceiptViaBluetooth() below tells the two
+// cases apart.
+declare global {
+  interface Window {
+    AndroidPrinter?: { printReceipt: (text: string) => void };
+  }
+}
+
+function buildReceiptText(order: {
+  orderNumber: string;
+  createdAt: string;
+  customer: { name: string };
+  fulfillmentType: string;
+  totalRs: string;
+  items: { quantity: number; product: { name: string } }[];
+}): string {
+  const lines: string[] = [];
+  lines.push('PROTEIN PANDA');
+  lines.push('--------------------------------');
+  lines.push(`Order #${order.orderNumber}`);
+  lines.push(new Date(order.createdAt).toLocaleString());
+  lines.push(`Customer: ${order.customer.name}`);
+  lines.push(`Type: ${order.fulfillmentType}`);
+  lines.push('--------------------------------');
+  for (const item of order.items) {
+    lines.push(`${item.quantity} x ${item.product.name}`);
+  }
+  lines.push('--------------------------------');
+  lines.push(`TOTAL: Rs ${order.totalRs}`);
+  lines.push('Thank you!');
+  return lines.join('\n');
+}
+
+function printReceiptViaBluetooth(order: Parameters<typeof buildReceiptText>[0]) {
+  const receiptText = buildReceiptText(order);
+  if (window.AndroidPrinter?.printReceipt) {
+    window.AndroidPrinter.printReceipt(receiptText);
+  } else {
+    alert('Bluetooth printing only works from the printer tablet app, not a regular browser. Open this page on that tablet to print.');
+  }
+}
+
 const STATUS_FLOW = ['RECEIVED', 'ACCEPTED', 'PREPARING', 'READY', 'ASSIGNED', 'OUT_FOR_DELIVERY', 'DELIVERED'];
 const STATUS_BUTTON_LABEL: Record<string, string> = {
   ACCEPTED: 'Accept Order',
@@ -285,6 +329,13 @@ export default function AdminOrdersPage() {
                       📄 Receipt
                     </button>
 
+                    <button
+                      onClick={() => printReceiptViaBluetooth(order)}
+                      className="rounded-full border-2 border-brand-black px-4 py-2 text-xs font-bold uppercase tracking-wide text-brand-black hover:border-brand-primary hover:text-brand-primary"
+                    >
+                      🖨️ Print
+                    </button>
+
                     {canCancel && (
                       <button
                         onClick={() => setCancellingOrder(cancellingOrder === order.id ? null : order.id)}
@@ -361,11 +412,6 @@ function RefundForm({
 }) {
   const [amount, setAmount] = useState(String(maxRs));
   const [reason, setReason] = useState('');
-  // Defaults to the auto-derived behavior (undefined here just means
-  // "use whatever the original payment method implies") by defaulting
-  // the UI itself to a neutral choice — WALLET is offered as a genuine
-  // alternative, not the default, since not every refund should
-  // silently become store credit unless an admin actually picks that.
   const [method, setMethod] = useState<'AUTO' | 'CASH' | 'RAZORPAY' | 'WALLET'>('AUTO');
 
   return (
