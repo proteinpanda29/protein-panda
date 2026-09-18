@@ -1,5 +1,5 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
-import Razorpay from 'razorpay';
+import Razorpay = require('razorpay');
 import * as crypto from 'crypto';
 
 @Injectable()
