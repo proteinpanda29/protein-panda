@@ -33,6 +33,7 @@ import { QueueModule } from './queue/queue.module';
 import { AuditLogModule } from './audit-log/audit-log.module';
 import { CampaignsModule } from './customers/campaigns.module';
 import { ExpensesModule } from './expenses/expenses.module';
+import { SupplementsModule } from './supplements/supplements.module';
 
 @Module({
   imports: [
@@ -100,6 +101,7 @@ import { ExpensesModule } from './expenses/expenses.module';
     AuditLogModule,
     CampaignsModule,
     ExpensesModule,
+    SupplementsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
