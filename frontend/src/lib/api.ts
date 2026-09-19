@@ -306,6 +306,7 @@ export const api = {
   adminUpdateShopStatus: (payload: unknown) => request('/shop/status', { method: 'PATCH', body: JSON.stringify(payload) }),
   adminToggleShop: () => request('/shop/toggle', { method: 'PATCH' }),
   adminAnalytics: (range: 'today' | 'week' | 'month') => request(`/admin/analytics?range=${range}`),
+  adminDailySales: (days: number) => request(`/admin/analytics/daily-sales?days=${days}`),
   adminAvailableRiders: () => request('/admin/delivery-personnel/available'),
   adminAssignDelivery: (orderId: string, deliveryPersonId: string) =>
     request(`/admin/orders/${orderId}/assign-delivery`, { method: 'PATCH', body: JSON.stringify({ deliveryPersonId }) }),
