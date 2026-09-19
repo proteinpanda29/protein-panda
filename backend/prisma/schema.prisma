@@ -532,6 +532,10 @@ model Nutrition {
   id           String  @id @default(uuid())
   productId    String  @unique
   product      Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  // The real "per approx Xg serving" this nutrition data is based on —
+  // customers reasonably ask "is that for the whole thing or half?"
+  // and this answers it directly rather than leaving it implied.
+  servingSizeG Decimal? @db.Decimal(6, 2)
   calories     Int
   proteinG     Decimal @db.Decimal(6, 2)
   carbsG       Decimal @db.Decimal(6, 2)
@@ -944,9 +948,48 @@ model Game {
   name        String   @unique // Hanging Challenge, Plank, Push-ups...
   description String?
   isActive    Boolean  @default(true)
+  // Customer-facing detail — filled in by the admin so the rules,
+  // participate page never needs a code change to update wording.
+  rules             String?
+  howToParticipate  String?
+  rewardDescription String?
+  sortOrder         Int      @default(0)
 
   levels   GameLevel[]
   attempts GameAttempt[]
+}
+
+/// A real supplement brand the shop actually uses — customer-facing
+/// transparency page, distinct from Product.labTested (which is about
+/// a MENU ITEM's own testing, not a third-party supplement brand's).
+model SupplementBrand {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  logoUrl     String?
+  websiteUrl  String?
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  supplements SupplementProduct[]
+}
+
+model SupplementProduct {
+  id                 String          @id @default(uuid())
+  brandId            String
+  brand              SupplementBrand @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  name               String
+  description        String?
+  imageUrl           String?
+  // The actual proof customers are asking to see — a photo or PDF of
+  // the batch's real lab test certificate, not just a "we test our
+  // stuff" claim in text.
+  labCertificateUrl  String?
+  labTestedDate      DateTime?
+  isActive           Boolean         @default(true)
+  sortOrder          Int             @default(0)
+  createdAt          DateTime        @default(now())
 }
 
 model GameLevel {
