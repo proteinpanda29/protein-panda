@@ -677,6 +677,35 @@ export class AdminService {
   // ---- POS Analytics ----
 
   /**
+   * A real day-by-day breakdown — "how many bills, how much total,
+   * each calendar day" — grouped in application code from the same
+   * real order data getPosAnalytics already uses, not a separate or
+   * approximated dataset.
+   */
+  async getDailySalesSummary(days: number = 30) {
+    const start = new Date();
+    start.setDate(start.getDate() - days);
+    start.setHours(0, 0, 0, 0);
+
+    const orders = await this.prisma.order.findMany({
+      where: { createdAt: { gte: start }, status: { not: 'CANCELLED' } },
+      select: { totalRs: true, createdAt: true },
+    });
+
+    const byDay: Record<string, { billCount: number; totalSalesRs: number }> = {};
+    for (const o of orders) {
+      const dateKey = o.createdAt.toISOString().slice(0, 10); // YYYY-MM-DD
+      if (!byDay[dateKey]) byDay[dateKey] = { billCount: 0, totalSalesRs: 0 };
+      byDay[dateKey].billCount += 1;
+      byDay[dateKey].totalSalesRs += Number(o.totalRs);
+    }
+
+    return Object.entries(byDay)
+      .map(([date, stats]) => ({ date, ...stats }))
+      .sort((a, b) => b.date.localeCompare(a.date)); // most recent day first
+  }
+
+  /**
    * Everything a counter/admin needs to understand sales performance:
    * payment method split, average order value, hourly distribution
    * (today only — a week/month view of hourly buckets isn't meaningful),
