@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { useOnlineStatus } from '@/lib/useOnlineStatus';
 import { enqueueSale, getQueue, syncQueue, QueuedSale } from '@/lib/offlineQueue';
 import { getSocket } from '@/lib/socket';
+import { printReceipt } from '@/lib/printReceipt';
 
 interface Customer {
   id: string;
@@ -70,8 +71,8 @@ export default function PosPage() {
 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [completedOrder, setCompletedOrder] = useState<{ id: string; orderNumber: string } | null>(null);
-  const [pendingUpiPayment, setPendingUpiPayment] = useState<{ orderId: string; orderNumber: string; shortUrl: string } | null>(null);
+  const [completedOrder, setCompletedOrder] = useState<{ id: string; orderNumber: string; receiptData: Omit<import('@/lib/printReceipt').ReceiptData, 'orderNumber'> } | null>(null);
+  const [pendingUpiPayment, setPendingUpiPayment] = useState<{ orderId: string; orderNumber: string; shortUrl: string; receiptData: Omit<import('@/lib/printReceipt').ReceiptData, 'orderNumber'> } | null>(null);
 
   const isOnline = useOnlineStatus();
   const [queue, setQueue] = useState<QueuedSale[]>([]);
@@ -185,14 +186,23 @@ export default function PosPage() {
 
     try {
       const order = await api.posCreateSale(salePayload);
+      // Captured now, before cart/customer get cleared right below —
+      // this is the one moment both are still guaranteed to reflect
+      // exactly what was actually sold.
+      const receiptData = {
+        customerName: customer.name,
+        fulfillmentType,
+        totalRs: total,
+        items: cart.map((l) => ({ quantity: l.quantity, name: l.name })),
+      };
       if (order.paymentLink) {
         // UPI — the sale isn't actually paid yet. Show the QR code and
         // wait for the real webhook-confirmed payment (via the same
         // live order:update socket event already used everywhere else
         // in the app), rather than treating the sale as done.
-        setPendingUpiPayment({ orderId: order.id, orderNumber: order.orderNumber, shortUrl: order.paymentLink.shortUrl });
+        setPendingUpiPayment({ orderId: order.id, orderNumber: order.orderNumber, shortUrl: order.paymentLink.shortUrl, receiptData });
       } else {
-        setCompletedOrder({ id: order.id, orderNumber: order.orderNumber });
+        setCompletedOrder({ id: order.id, orderNumber: order.orderNumber, receiptData });
       }
       setCart([]);
       setCustomer(null);
@@ -217,7 +227,7 @@ export default function PosPage() {
 
     const handler = (payload: { orderId: string; orderNumber: string }) => {
       if (payload.orderId !== pendingUpiPayment.orderId) return;
-      setCompletedOrder({ id: payload.orderId, orderNumber: payload.orderNumber });
+      setCompletedOrder({ id: payload.orderId, orderNumber: payload.orderNumber, receiptData: pendingUpiPayment.receiptData });
       setPendingUpiPayment(null);
     };
     socket.on('order:update', handler);
@@ -263,10 +273,16 @@ export default function PosPage() {
         <p className="mb-6 text-sm text-brand-body">Order #{completedOrder.orderNumber} — e-bill sent, stock deducted, points awarded.</p>
         <div className="flex flex-col items-center gap-3">
           <button
-            onClick={() => api.adminDownloadInvoicePdf(completedOrder.id, completedOrder.orderNumber)}
+            onClick={() => printReceipt({ orderNumber: completedOrder.orderNumber, ...completedOrder.receiptData })}
             className="rounded-full border-2 border-brand-black px-6 py-3 text-sm font-bold uppercase tracking-wide text-brand-black hover:border-brand-primary hover:text-brand-primary"
           >
-            📄 Print / Download Receipt
+            🖨️ Print Receipt
+          </button>
+          <button
+            onClick={() => api.adminDownloadInvoicePdf(completedOrder.id, completedOrder.orderNumber)}
+            className="text-xs font-semibold text-brand-body underline"
+          >
+            Download PDF instead
           </button>
           <button
             onClick={() => setCompletedOrder(null)}
