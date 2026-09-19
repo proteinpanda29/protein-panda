@@ -74,7 +74,7 @@ export default function SupplementsPage() {
                       <p className="text-[10px] text-brand-body">Lab tested: {new Date(s.labTestedDate).toLocaleDateString()}</p>
                     )}
                   </div>
-                  {s.labCertificateUrl && ( <a
+                  {s.labCertificateUrl && (
                     
                       href={s.labCertificateUrl}
                       target="_blank"
