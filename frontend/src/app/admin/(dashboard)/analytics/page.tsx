@@ -29,6 +29,8 @@ export default function AdminAnalyticsPage() {
   const [range, setRange] = useState<'today' | 'week' | 'month'>('today');
   const [data, setData] = useState<Analytics | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [dailySales, setDailySales] = useState<{ date: string; billCount: number; totalSalesRs: number }[]>([]);
+  const [dailyDays, setDailyDays] = useState(30);
 
   useEffect(() => {
     api
@@ -36,6 +38,10 @@ export default function AdminAnalyticsPage() {
       .then(setData)
       .catch((err) => setError(err.message));
   }, [range]);
+
+  useEffect(() => {
+    api.adminDailySales(dailyDays).then(setDailySales).catch(() => undefined);
+  }, [dailyDays]);
 
   if (error) return <p className="text-sm text-brand-body">Couldn&apos;t load analytics. ({error})</p>;
 
@@ -138,7 +144,7 @@ export default function AdminAnalyticsPage() {
               {data.topCustomers.length === 0 && <p className="text-xs text-brand-body">No orders in this window yet.</p>}
               <div className="flex flex-col gap-2">
                 {data.topCustomers.map((c, i) => (
-                  <a
+                  
                     key={c.customerId}
                     href={`/admin/customers/${c.customerId}`}
                     className="flex items-center justify-between text-sm hover:text-brand-primary"
@@ -152,6 +158,60 @@ export default function AdminAnalyticsPage() {
           </div>
         </>
       )}
+
+      <div className="mt-8 rounded-2xl border border-brand-grey bg-brand-white p-5">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-sm font-bold uppercase tracking-wide text-brand-black">Daily Sales — Bills & Totals</h2>
+          <div className="flex gap-2">
+            {[7, 30, 90].map((d) => (
+              <button
+                key={d}
+                onClick={() => setDailyDays(d)}
+                className={`rounded-full px-3 py-1.5 text-xs font-bold uppercase ${
+                  dailyDays === d ? 'bg-brand-primary text-brand-white' : 'border border-brand-grey text-brand-black'
+                }`}
+              >
+                {d} Days
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {dailySales.length === 0 ? (
+          <p className="text-sm text-brand-body">No sales in this range yet.</p>
+        ) : (
+          <>
+            <div className="mb-3 flex items-center justify-between rounded-xl bg-brand-black p-3 text-brand-white">
+              <span className="text-xs uppercase tracking-wide text-brand-grey">
+                Total: {dailySales.reduce((s, d) => s + d.billCount, 0)} bills
+              </span>
+              <span className="text-lg font-extrabold">
+                ₹{dailySales.reduce((s, d) => s + d.totalSalesRs, 0).toLocaleString()}
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-brand-grey text-xs uppercase text-brand-body">
+                    <th className="py-2">Date</th>
+                    <th className="py-2 text-right">Bills</th>
+                    <th className="py-2 text-right">Total Sales</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dailySales.map((d) => (
+                    <tr key={d.date} className="border-b border-brand-grey/50">
+                      <td className="py-2 text-brand-black">{new Date(d.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</td>
+                      <td className="py-2 text-right text-brand-black">{d.billCount}</td>
+                      <td className="py-2 text-right font-bold text-brand-black">₹{d.totalSalesRs.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }
