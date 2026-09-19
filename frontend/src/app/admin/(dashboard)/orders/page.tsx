@@ -30,18 +30,47 @@ function buildReceiptText(order: {
 }
 
 function printReceiptViaBluetooth(order: Parameters<typeof buildReceiptText>[0]) {
+  // Renders a proper receipt-width HTML page in a small popup, then
+  // triggers the browser's own print dialog — the customer picks the
+  // real Windows printer (e.g. "POS58 Printer") there, exactly like
+  // printing any other webpage. This works on any laptop/desktop with
+  // the printer installed as a normal Windows printer; no Bluetooth,
+  // no Android app, no special browser permission needed at all.
   const receiptText = buildReceiptText(order);
-  // The Simple Bluetooth Printer app registers this custom URL scheme
-  // as a "deep link" — Android hands off any navigation to a
-  // btprinter:// address straight to that app, and this works from a
-  // completely normal mobile browser on the tablet. No native wrapper
-  // app is needed at all; this only works on the Android tablet that
-  // actually has the printer app installed and paired — on a desktop
-  // or any device without it, Android/the browser will simply do
-  // nothing or show "can't open this link", which is expected.
-  const params = new URLSearchParams();
-  params.append('content', receiptText);
-  window.location.href = `btprinter://print?${params.toString()}`;
+  const printWindow = window.open('', '_blank', 'width=380,height=600');
+  if (!printWindow) {
+    alert('Please allow pop-ups for this site so the print window can open.');
+    return;
+  }
+
+  printWindow.document.write(`
+    <html>
+      <head>
+        <title>Receipt #${order.orderNumber}</title>
+        <style>
+          @page { size: 58mm auto; margin: 0; }
+          body {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            width: 58mm;
+            margin: 0;
+            padding: 4mm;
+            white-space: pre-wrap;
+          }
+        </style>
+      </head>
+      <body>${receiptText.replace(/</g, '&lt;').replace(/\n/g, '<br/>')}</body>
+    </html>
+  `);
+  printWindow.document.close();
+
+  // onload with document.write-based content is inconsistent across
+  // browsers — a short, fixed delay before printing is the reliable
+  // approach here, giving the popup time to finish rendering first.
+  setTimeout(() => {
+    printWindow.focus();
+    printWindow.print();
+  }, 300);
 }
 
 const STATUS_FLOW = ['RECEIVED', 'ACCEPTED', 'PREPARING', 'READY', 'ASSIGNED', 'OUT_FOR_DELIVERY', 'DELIVERED'];
