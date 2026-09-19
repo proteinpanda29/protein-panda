@@ -3,74 +3,24 @@
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useOrderUpdates } from '@/lib/useOrderUpdates';
+import { printReceipt } from '@/lib/printReceipt';
 
-function buildReceiptText(order: {
+function printReceiptViaBluetooth(order: {
   orderNumber: string;
   createdAt: string;
   customer: { name: string };
   fulfillmentType: string;
   totalRs: string;
   items: { quantity: number; product: { name: string } }[];
-}): string {
-  const lines: string[] = [];
-  lines.push('PROTEIN PANDA');
-  lines.push('--------------------------------');
-  lines.push(`Order #${order.orderNumber}`);
-  lines.push(new Date(order.createdAt).toLocaleString());
-  lines.push(`Customer: ${order.customer.name}`);
-  lines.push(`Type: ${order.fulfillmentType}`);
-  lines.push('--------------------------------');
-  for (const item of order.items) {
-    lines.push(`${item.quantity} x ${item.product.name}`);
-  }
-  lines.push('--------------------------------');
-  lines.push(`TOTAL: Rs ${order.totalRs}`);
-  lines.push('Thank you!');
-  return lines.join('\n');
-}
-
-function printReceiptViaBluetooth(order: Parameters<typeof buildReceiptText>[0]) {
-  // Renders a proper receipt-width HTML page in a small popup, then
-  // triggers the browser's own print dialog — the customer picks the
-  // real Windows printer (e.g. "POS58 Printer") there, exactly like
-  // printing any other webpage. This works on any laptop/desktop with
-  // the printer installed as a normal Windows printer; no Bluetooth,
-  // no Android app, no special browser permission needed at all.
-  const receiptText = buildReceiptText(order);
-  const printWindow = window.open('', '_blank', 'width=380,height=600');
-  if (!printWindow) {
-    alert('Please allow pop-ups for this site so the print window can open.');
-    return;
-  }
-
-  printWindow.document.write(`
-    <html>
-      <head>
-        <title>Receipt #${order.orderNumber}</title>
-        <style>
-          @page { size: 58mm auto; margin: 0; }
-          body {
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            width: 58mm;
-            margin: 0;
-            padding: 4mm;
-            white-space: pre-wrap;
-          }
-        </style>
-      </head>
-      <body>${receiptText.replace(/</g, '&lt;').replace(/\n/g, '<br/>')}</body>
-    </html>
-  `);
-  printWindow.document.close();
-
-  // onload with document.write-based content is inconsistent across
-  // browsers — a short, fixed delay before printing is the reliable
-  // approach here, giving the popup time to finish rendering first.
-  setTimeout(() => {
-    printWindow.focus();
-    printWindow.print();
-  }, 300);
+}) {
+  printReceipt({
+    orderNumber: order.orderNumber,
+    createdAt: order.createdAt,
+    customerName: order.customer.name,
+    fulfillmentType: order.fulfillmentType,
+    totalRs: order.totalRs,
+    items: order.items.map((i) => ({ quantity: i.quantity, name: i.product.name })),
+  });
 }
 
 const STATUS_FLOW = ['RECEIVED', 'ACCEPTED', 'PREPARING', 'READY', 'ASSIGNED', 'OUT_FOR_DELIVERY', 'DELIVERED'];
