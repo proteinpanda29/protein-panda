@@ -61,6 +61,12 @@ export class AdminController {
     return this.admin.getPosAnalytics(range);
   }
 
+  @Get('analytics/daily-sales')
+  @Departments(StaffDepartment.FINANCE_MARKETING)
+  dailySales(@Query('days') days?: string) {
+    return this.admin.getDailySalesSummary(days ? Number(days) : undefined);
+  }
+
   @Get('inventory/low-stock')
   @Departments(StaffDepartment.SUPPLY_CHAIN)
   lowStock() {
