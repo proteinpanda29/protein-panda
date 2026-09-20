@@ -34,6 +34,7 @@ import { AuditLogModule } from './audit-log/audit-log.module';
 import { CampaignsModule } from './customers/campaigns.module';
 import { ExpensesModule } from './expenses/expenses.module';
 import { SupplementsModule } from './supplements/supplements.module';
+import { WhatsappModule } from './whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -102,6 +103,7 @@ import { SupplementsModule } from './supplements/supplements.module';
     CampaignsModule,
     ExpensesModule,
     SupplementsModule,
+    WhatsappModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
