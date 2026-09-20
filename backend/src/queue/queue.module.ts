@@ -30,6 +30,6 @@ import { INVOICE_EMAIL_QUEUE, WHATSAPP_NOTIFICATION_QUEUE } from './queue.consta
     BillingModule,
   ],
   providers: [NotificationQueueService, NotificationProcessor, WhatsAppNotificationProcessor, WhatsAppService],
-  exports: [NotificationQueueService],
+  exports: [NotificationQueueService, WhatsAppService],
 })
 export class QueueModule {}

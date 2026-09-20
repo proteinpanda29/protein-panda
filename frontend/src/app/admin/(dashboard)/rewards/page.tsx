@@ -37,6 +37,16 @@ export default function AdminRewardsPage() {
     }
   };
 
+  const deleteReward = async (r: Reward) => {
+    if (!confirm(`Delete "${r.name}"? This cannot be undone.`)) return;
+    try {
+      await api.adminDeleteReward(r.id);
+      load();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -137,6 +147,12 @@ export default function AdminRewardsPage() {
               }`}
             >
               {r.isActive ? 'Disable' : 'Enable'}
+            </button>
+            <button
+              onClick={() => deleteReward(r)}
+              className="rounded-full border-2 border-red-600 px-4 py-2 text-xs font-bold uppercase tracking-wide text-red-600 hover:bg-red-600 hover:text-white"
+            >
+              Delete
             </button>
           </div>
         ))}

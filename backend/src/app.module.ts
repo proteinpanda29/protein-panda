@@ -32,9 +32,9 @@ import { CashModule } from './cash/cash.module';
 import { QueueModule } from './queue/queue.module';
 import { AuditLogModule } from './audit-log/audit-log.module';
 import { CampaignsModule } from './customers/campaigns.module';
-import { ExpensesModule } from './expenses/expenses.module';
 import { SupplementsModule } from './supplements/supplements.module';
-import { WhatsappModule } from './whatsapp/whatsapp.module';
+import { WhatsAppBotModule } from './whatsapp-bot/whatsapp-bot.module';
+import { ExpensesModule } from './expenses/expenses.module';
 
 @Module({
   imports: [
@@ -101,9 +101,9 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
     QueueModule,
     AuditLogModule,
     CampaignsModule,
-    ExpensesModule,
     SupplementsModule,
-    WhatsappModule,
+    WhatsAppBotModule,
+    ExpensesModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

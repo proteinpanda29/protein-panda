@@ -20,6 +20,15 @@ interface Redemption {
   reward: { name: string; valueRs: string | null };
 }
 
+interface BillableChallenge {
+  id: string;
+  challengeCode: string;
+  entryFeeRs: string;
+  rewardDescription: string | null;
+  discountAppliedRs: string | null;
+  game: { name: string };
+}
+
 interface Addon {
   id: string;
   group: 'BASE' | 'FLAVOUR' | 'LIQUID' | 'ADDON';
@@ -68,6 +77,8 @@ export default function PosPage() {
   const [fulfillmentType, setFulfillmentType] = useState<'PICKUP' | 'DINE_IN'>('PICKUP');
   const [availableRedemptions, setAvailableRedemptions] = useState<Redemption[]>([]);
   const [selectedRedemptionId, setSelectedRedemptionId] = useState('');
+  const [billableChallenges, setBillableChallenges] = useState<BillableChallenge[]>([]);
+  const [selectedChallengeId, setSelectedChallengeId] = useState('');
 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -128,11 +139,14 @@ export default function PosPage() {
   // selected one, since it may not belong to the new customer.
   useEffect(() => {
     setSelectedRedemptionId('');
+    setSelectedChallengeId('');
     if (!customer) {
       setAvailableRedemptions([]);
+      setBillableChallenges([]);
       return;
     }
     api.posAvailableRedemptions(customer.id).then(setAvailableRedemptions).catch(() => setAvailableRedemptions([]));
+    api.posBillableChallenges(customer.id).then(setBillableChallenges).catch(() => setBillableChallenges([]));
   }, [customer]);
 
   const addSimple = (p: Product) => {
@@ -167,6 +181,7 @@ export default function PosPage() {
       manualDiscountRs: manualDiscount.trim() ? Number(manualDiscount) : undefined,
       fulfillmentType,
       redemptionId: selectedRedemptionId || undefined,
+      gameAttemptId: selectedChallengeId || undefined,
     };
 
     if (!isOnline) {
@@ -208,6 +223,7 @@ export default function PosPage() {
       setCustomer(null);
       setCouponCode('');
       setManualDiscount('');
+      setSelectedChallengeId('');
       setQuery('');
     } catch (err: any) {
       setError(err.message);
@@ -469,6 +485,22 @@ export default function PosPage() {
                   {availableRedemptions.map((r) => (
                     <option key={r.id} value={r.id}>
                       {r.reward.name} — ₹{r.reward.valueRs} off ({r.pointsSpent} pts spent)
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {billableChallenges.length > 0 && (
+                <select
+                  value={selectedChallengeId}
+                  onChange={(e) => setSelectedChallengeId(e.target.value)}
+                  className="mb-3 w-full rounded-lg border border-brand-grey px-3 py-2 text-sm"
+                >
+                  <option value="">No verified challenge to bill</option>
+                  {billableChallenges.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      #{c.challengeCode} · {c.game.name} — {Number(c.entryFeeRs) > 0 ? `+₹${c.entryFeeRs} entry` : 'free entry'}
+                      {c.discountAppliedRs && Number(c.discountAppliedRs) > 0 ? ` · -₹${c.discountAppliedRs} reward` : ''}
                     </option>
                   ))}
                 </select>

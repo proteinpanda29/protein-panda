@@ -279,6 +279,7 @@ model Customer {
 model Allergen {
   id       String            @id @default(uuid())
   name     String            @unique // e.g. Milk, Peanut, Egg, Soy
+  isActive Boolean           @default(true)
   customers CustomerAllergy[]
   products  ProductAllergen[]
 }
@@ -347,6 +348,7 @@ model ProductCategory {
   id       String    @id @default(uuid())
   name     String    @unique // Protein Shakes, Diet Food, Snacks...
   slug     String    @unique
+  isActive Boolean   @default(true)
   products Product[]
 }
 
@@ -396,6 +398,7 @@ model Ingredient {
   id       String   @id @default(uuid())
   name     String   @unique
   unit     String  // g, ml, pcs
+  isActive Boolean  @default(true)
   // Running "current cost" estimate — last price paid, updated whenever a
   // new Purchase line comes in for this ingredient. Used to compute
   // product food cost; null means no purchase has ever recorded a price
@@ -585,6 +588,13 @@ model Order {
   // for PICKUP/DINE_IN orders, or when no zone/shop-location is
   // configured (free delivery, exactly as before this feature existed).
   deliveryFeeRs   Decimal         @db.Decimal(8, 2) @default(0)
+  // A game challenge's ₹49 entry fee, folded into this same bill at
+  // the counter rather than collected as a separate transaction —
+  // kept in its own column (same reasoning as deliveryFeeRs above:
+  // never affects loyalty points or coupon minimums, both computed
+  // from totalRs alone) so it's still visible on the receipt as its
+  // own line rather than silently inflating the food subtotal.
+  challengeFeeRs  Decimal         @db.Decimal(8, 2) @default(0)
   totalProteinG   Decimal         @db.Decimal(7, 2) @default(0)
   totalCalories   Int             @default(0)
   couponId        String?
@@ -609,6 +619,8 @@ model Order {
   pointsEntries  PointsLedgerEntry[]
   refunds        Refund[]
   attendance     Attendance[]
+  gameAttemptsQualifiedFor GameAttempt[] @relation("GameAttemptQualifyingOrder")
+  gameAttemptBilled        GameAttempt?  @relation("GameAttemptBilledOrder")
 
   @@index([customerId, createdAt])
   @@index([status])
@@ -755,6 +767,11 @@ model BusinessRuleSettings {
   loyaltyMultiplier          Int     @default(2)
   monthlyVisitTarget         Int     @default(15)
   requiredChallengesPerMonth Int     @default(1)
+  // Lets an admin hide the "This Month's Challenge" card from every
+  // customer's dashboard without deleting the underlying target/
+  // tracking logic — visits still count in the background either way,
+  // this only controls whether customers see the card itself.
+  showMonthlyChallengeToCustomers Boolean @default(true)
   updatedAt                  DateTime @updatedAt
 }
 
@@ -954,6 +971,27 @@ model Game {
   howToParticipate  String?
   rewardDescription String?
   sortOrder         Int      @default(0)
+  // One representative photo per challenge — shown on the game card;
+  // uploaded through the same Cloudinary signed-upload flow already
+  // used for product photos.
+  imageUrl          String?
+  // 0 = free to play (e.g. Coin Balance). Real money changes hands
+  // here, so this is a first-class field, not folded into rewardConfig.
+  entryFeeRs        Decimal? @db.Decimal(8, 2) @default(0)
+  // A qualifying purchase of at least this amount earns one free
+  // attempt (currently Hanging Bar and Dizzy Squat, per the finalized
+  // spec) — null/0 means this game has no free-attempt path at all.
+  freeAttemptMinPurchaseRs Decimal? @db.Decimal(8, 2)
+  // Drives calculateGameReward() — see games/reward-calculator.ts for
+  // the full shape and every game's real, finalized configuration.
+  // Kept as flexible JSON rather than rigid columns because the 7
+  // games' reward shapes are genuinely different (free product on a
+  // single target, a tiered ladder of targets, a straight percentage
+  // off, a per-repetition discount) and two of the seven — Coin
+  // Balance's exact mechanics and the Combo Push-Up's exact exercise
+  // sequence — were explicitly left for the admin to finalize rather
+  // than hard-coded here.
+  rewardConfig Json?
 
   levels   GameLevel[]
   attempts GameAttempt[]
@@ -1006,21 +1044,64 @@ model GameLevel {
   attempts GameAttempt[]
 }
 
+enum GameAttemptStatus {
+  PENDING_PAYMENT       // ₹49 challenges start here until payment confirms
+  IN_PROGRESS           // staff has pressed Start
+  AWAITING_VERIFICATION // staff has recorded a result, not yet double-checked
+  VERIFIED              // staff confirmed the result is final and correct
+  CANCELLED
+}
+
+/// Every real-money and reward detail a completed challenge needs to
+/// be traced later, matching the finalized Challenge Result System:
+/// challenge ID, entry type/fee, purchase amount, timing, result,
+/// reward, discount, and staff verification.
 model GameAttempt {
   id           String    @id @default(uuid())
+  // Human-readable, sequential — e.g. PP-GAME-00125 — matching the
+  // finalized spec's own example exactly, and what staff/customers
+  // will actually read out loud or write on a bill.
+  challengeCode String   @unique
   customerId   String
   customer     Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
   gameId       String
   game         Game      @relation(fields: [gameId], references: [id])
   levelId      String?
   level        GameLevel? @relation(fields: [levelId], references: [id])
-  resultMetric Decimal   @db.Decimal(8, 2) // achieved value
+  status       GameAttemptStatus @default(PENDING_PAYMENT)
+  entryFeeRs   Decimal   @db.Decimal(8, 2) @default(0)
+  // True when this attempt was granted free via a ≥₹150 qualifying
+  // purchase rather than paid for directly — Hanging Bar/Dizzy Squat's
+  // free-attempt path. Never true alongside a real Payment record.
+  wasFreeAttempt Boolean @default(false)
+  // The real order whose payment or ≥₹150 total funded this attempt —
+  // links a challenge back to the actual bill it's associated with,
+  // as the finalized spec's result record requires.
+  qualifyingOrderId String?
+  qualifyingOrder   Order? @relation("GameAttemptQualifyingOrder", fields: [qualifyingOrderId], references: [id])
+  // The real order this challenge's entry fee/discount was actually
+  // billed against at the counter — set once, the moment a POS sale
+  // includes this attempt, and checked before allowing it to be
+  // billed a second time.
+  billedOrderId String? @unique
+  billedOrder   Order?  @relation("GameAttemptBilledOrder", fields: [billedOrderId], references: [id])
+  startedAt    DateTime?
+  endedAt      DateTime?
+  resultMetric Decimal   @db.Decimal(8, 2) @default(0) // achieved value: seconds held, reps, or 1/0 for a pass/fail challenge
   didWin       Boolean   @default(false)
-  loggedByStaffId String? // staff who verified in-shop
+  // What calculateGameReward() decided this attempt earned — kept as
+  // plain fields (not re-derived later) so a reward, once given,
+  // stays fixed even if the game's rewardConfig changes afterward.
+  rewardType      String? // FREE_PRODUCT | PERCENT_DISCOUNT | PER_UNIT_DISCOUNT | TIERED | NONE
+  rewardDescription String?
+  discountAppliedRs Decimal? @db.Decimal(8, 2)
+  loggedByStaffId String? // staff who ran/verified the attempt in-shop
+  verifiedAt      DateTime?
   playedAt     DateTime  @default(now())
 
   @@index([customerId, playedAt])
   @@index([gameId])
+  @@index([status])
 }
 
 // ---------------------------------------------------------
@@ -1744,4 +1825,48 @@ model SupportTicketMessage {
   createdAt       DateTime      @default(now())
 
   @@index([ticketId, createdAt])
+}
+
+// ---------------------------------------------------------
+// WHATSAPP ORDERING BOT — one row per phone number holding
+// an active conversation. WhatsApp messages arrive one at a
+// time with no built-in session of their own, so this table
+// IS the session: which step the customer is on, and their
+// in-progress cart, persisted between messages (which may be
+// seconds or hours apart).
+// ---------------------------------------------------------
+
+enum WhatsAppConversationState {
+  GREETING
+  BROWSING_CATEGORIES
+  BROWSING_ITEMS
+  VIEWING_CART
+  AWAITING_PAYMENT
+  COMPLETED
+}
+
+model WhatsAppSession {
+  id           String                    @id @default(uuid())
+  // E.164-ish, digits only — the one stable identifier a WhatsApp
+  // conversation actually has; matched against User.phone to link a
+  // session to a real customer account once the number's known.
+  phone        String                    @unique
+  customerId   String?
+  state        WhatsAppConversationState @default(GREETING)
+  // The category currently being browsed, if any — null while at the
+  // top-level category list or cart/checkout steps.
+  activeCategoryId String?
+  // The in-progress cart for this conversation — plain JSON rather
+  // than real OrderItem rows, since nothing here is a real order yet;
+  // it only becomes one at checkout, going through the exact same
+  // OrdersService.create() every other channel already uses.
+  cart         Json                      @default("[]")
+  // Set once checkout generates a real pending order, so a payment
+  // confirmation (or a customer re-sending a message mid-payment) can
+  // find its way back to the right order.
+  pendingOrderId String?
+  updatedAt    DateTime                  @updatedAt
+  createdAt    DateTime                  @default(now())
+
+  @@index([phone])
 }

@@ -212,16 +212,34 @@ export class AdminController {
     return this.admin.updateCategory(id, body);
   }
 
+  @Delete('categories/:id')
+  @Departments(StaffDepartment.SALES)
+  deleteCategory(@Param('id') id: string) {
+    return this.admin.deleteCategory(id);
+  }
+
   @Post('products')
   @Departments(StaffDepartment.SALES)
   createProduct(@Body() body: any) {
     return this.admin.createProduct(body);
   }
 
+  @Post('products/bulk-import')
+  @Departments(StaffDepartment.SALES)
+  bulkImportMenu(@Body('items') items: any[]) {
+    return this.admin.bulkImportMenu(items);
+  }
+
   @Patch('products/:id')
   @Departments(StaffDepartment.SALES)
   updateProduct(@Req() req: any, @Param('id') id: string, @Body() body: any) {
     return this.admin.updateProduct(id, body, req.user.userId, req.user.role);
+  }
+
+  @Delete('products/:id')
+  @Departments(StaffDepartment.SALES)
+  deleteProduct(@Param('id') id: string) {
+    return this.admin.deleteProduct(id);
   }
 
   @Get('allergens')
@@ -234,6 +252,18 @@ export class AdminController {
   @Departments(StaffDepartment.SALES)
   createAllergen(@Body('name') name: string) {
     return this.admin.createAllergen(name);
+  }
+
+  @Patch('allergens/:id')
+  @Departments(StaffDepartment.SALES)
+  updateAllergen(@Param('id') id: string, @Body() body: any) {
+    return this.admin.updateAllergen(id, body);
+  }
+
+  @Delete('allergens/:id')
+  @Departments(StaffDepartment.SALES)
+  deleteAllergen(@Param('id') id: string) {
+    return this.admin.deleteAllergen(id);
   }
 
   @Patch('products/:id/allergens')
@@ -264,6 +294,18 @@ export class AdminController {
   @Departments(StaffDepartment.SUPPLY_CHAIN)
   ingredients() {
     return this.admin.listIngredientsPlain();
+  }
+
+  @Patch('ingredients/:id')
+  @Departments(StaffDepartment.SUPPLY_CHAIN)
+  updateIngredient(@Param('id') id: string, @Body() body: any) {
+    return this.admin.updateIngredient(id, body);
+  }
+
+  @Delete('ingredients/:id')
+  @Departments(StaffDepartment.SUPPLY_CHAIN)
+  deleteIngredient(@Param('id') id: string) {
+    return this.admin.deleteIngredient(id);
   }
 
   @Patch('products/:id/ingredients/:ingredientId')
@@ -321,6 +363,12 @@ export class AdminController {
     return this.admin.updateReward(id, body, req.user.userId, req.user.role);
   }
 
+  @Delete('rewards/:id')
+  @Departments(StaffDepartment.LOYALTY)
+  deleteReward(@Param('id') id: string) {
+    return this.admin.deleteReward(id);
+  }
+
   @Get('coupons')
   @Departments(StaffDepartment.SALES)
   coupons() {
@@ -339,6 +387,12 @@ export class AdminController {
     return this.admin.updateCoupon(id, body, req.user.userId, req.user.role);
   }
 
+  @Delete('coupons/:id')
+  @Departments(StaffDepartment.SALES)
+  deleteCoupon(@Param('id') id: string) {
+    return this.admin.deleteCoupon(id);
+  }
+
   @Get('games')
   @Departments(StaffDepartment.LOYALTY)
   games() {
@@ -347,7 +401,7 @@ export class AdminController {
 
   @Post('games')
   @Departments(StaffDepartment.LOYALTY)
-  createGame(@Body() body: { name: string; description?: string }) {
+  createGame(@Body() body: { name: string; description?: string; rules?: string; howToParticipate?: string; rewardDescription?: string; sortOrder?: number }) {
     return this.admin.createGame(body);
   }
 
@@ -355,6 +409,12 @@ export class AdminController {
   @Departments(StaffDepartment.LOYALTY)
   updateGame(@Param('id') id: string, @Body() body: any) {
     return this.admin.updateGame(id, body);
+  }
+
+  @Delete('games/:id')
+  @Departments(StaffDepartment.LOYALTY)
+  deleteGame(@Param('id') id: string) {
+    return this.admin.deleteGame(id);
   }
 
   @Post('games/:id/levels')

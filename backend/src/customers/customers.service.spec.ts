@@ -5,6 +5,7 @@ import { CustomersService } from './customers.service';
 // wallet.service.spec.ts, so a simple stub is all these tests need.
 const mockWallet = { getBalance: jest.fn().mockResolvedValue(0), listTransactions: jest.fn().mockResolvedValue([]) } as any;
 const mockAttendance = { getMonthlyProgress: jest.fn().mockResolvedValue({ visitsThisMonth: 0, visitTarget: 15, visitsComplete: false, challengesCompletedThisMonth: 0, challengeTarget: 1, challengeComplete: false, rewardEligible: false }) } as any;
+const mockBusinessRules = { getRules: jest.fn().mockResolvedValue({ loyaltyDivisorRs: 10, loyaltyMultiplier: 2, monthlyVisitTarget: 15, requiredChallengesPerMonth: 1, showMonthlyChallengeToCustomers: true }) } as any;
 
 function makePrisma(overrides: Partial<any> = {}) {
   const prisma: any = {
@@ -48,7 +49,7 @@ describe('CustomersService.getDashboard — nutrition today summary', () => {
         ]),
       },
     });
-    const service = new CustomersService(prisma, mockWallet, mockAttendance);
+    const service = new CustomersService(prisma, mockWallet, mockAttendance, mockBusinessRules);
 
     const result = await service.getDashboard('cust-1');
 
@@ -59,7 +60,7 @@ describe('CustomersService.getDashboard — nutrition today summary', () => {
 
   it('returns zero for every nutrient, not undefined, when nothing has been logged today', async () => {
     const prisma = makePrisma({ nutritionLog: { findMany: jest.fn().mockResolvedValue([]) } });
-    const service = new CustomersService(prisma, mockWallet, mockAttendance);
+    const service = new CustomersService(prisma, mockWallet, mockAttendance, mockBusinessRules);
 
     const result = await service.getDashboard('cust-1');
 
@@ -73,7 +74,7 @@ describe('CustomersService.getDashboard — XP/level', () => {
   it('computes XP from lifetime EARNED points, not the current spendable balance', async () => {
     const prisma = makePrisma();
     prisma.pointsLedgerEntry.aggregate.mockResolvedValue({ _sum: { points: 2000 } });
-    const service = new CustomersService(prisma, mockWallet, mockAttendance);
+    const service = new CustomersService(prisma, mockWallet, mockAttendance, mockBusinessRules);
 
     const dashboard = await service.getDashboard('cust-1');
 
@@ -84,7 +85,7 @@ describe('CustomersService.getDashboard — XP/level', () => {
 
   it('assigns Rookie for a brand-new customer with zero XP', async () => {
     const prisma = makePrisma();
-    const service = new CustomersService(prisma, mockWallet, mockAttendance);
+    const service = new CustomersService(prisma, mockWallet, mockAttendance, mockBusinessRules);
 
     const dashboard = await service.getDashboard('cust-1');
 
@@ -107,7 +108,7 @@ describe('CustomersService.getDashboard — monthly 15-visit challenge', () => {
         rewardEligible: false,
       }),
     } as any;
-    const service = new CustomersService(prisma, mockWallet, attendance);
+    const service = new CustomersService(prisma, mockWallet, attendance, mockBusinessRules);
 
     const dashboard = await service.getDashboard('cust-1');
 
@@ -122,12 +123,22 @@ describe('CustomersService.getDashboard — monthly 15-visit challenge', () => {
     });
     expect(attendance.getMonthlyProgress).toHaveBeenCalledWith(prisma, 'cust-1');
   });
+
+  it('returns null instead of the real progress when the admin has hidden this card from customers', async () => {
+    const prisma = makePrisma();
+    const businessRules = { getRules: jest.fn().mockResolvedValue({ showMonthlyChallengeToCustomers: false }) } as any;
+    const service = new CustomersService(prisma, mockWallet, mockAttendance, businessRules);
+
+    const dashboard = await service.getDashboard('cust-1');
+
+    expect(dashboard.monthlyChallenge).toBeNull();
+  });
 });
 
 describe('CustomersService.updateProfile', () => {
   it('only passes through whitelisted fields, dropping anything else', async () => {
     const prisma = makePrisma();
-    const service = new CustomersService(prisma, mockWallet, mockAttendance);
+    const service = new CustomersService(prisma, mockWallet, mockAttendance, mockBusinessRules);
 
     await service.updateProfile('cust-1', {
       name: 'New Name',
@@ -151,7 +162,7 @@ describe('CustomersService.getMonthlyReport', () => {
       { productId: 'p2', quantity: 1, product: { name: 'Protein Oats' } },
       { productId: 'p1', quantity: 3, product: { name: 'Chocolate Shake' } },
     ]);
-    const service = new CustomersService(prisma, mockWallet, mockAttendance);
+    const service = new CustomersService(prisma, mockWallet, mockAttendance, mockBusinessRules);
 
     const report = await service.getMonthlyReport('cust-1', '2026-08');
 
@@ -160,7 +171,7 @@ describe('CustomersService.getMonthlyReport', () => {
 
   it('returns null favourite when no orders were placed that month', async () => {
     const prisma = makePrisma();
-    const service = new CustomersService(prisma, mockWallet, mockAttendance);
+    const service = new CustomersService(prisma, mockWallet, mockAttendance, mockBusinessRules);
 
     const report = await service.getMonthlyReport('cust-1', '2026-08');
 
@@ -175,7 +186,7 @@ describe('CustomersService.getMonthlyReport', () => {
       { reward: { valueRs: 50 } },
       { reward: { valueRs: null } },
     ]);
-    const service = new CustomersService(prisma, mockWallet, mockAttendance);
+    const service = new CustomersService(prisma, mockWallet, mockAttendance, mockBusinessRules);
 
     const report = await service.getMonthlyReport('cust-1', '2026-08');
 
@@ -184,7 +195,7 @@ describe('CustomersService.getMonthlyReport', () => {
 
   it('defaults to the current month when none is specified', async () => {
     const prisma = makePrisma();
-    const service = new CustomersService(prisma, mockWallet, mockAttendance);
+    const service = new CustomersService(prisma, mockWallet, mockAttendance, mockBusinessRules);
 
     const report = await service.getMonthlyReport('cust-1');
 
@@ -195,7 +206,7 @@ describe('CustomersService.getMonthlyReport', () => {
 describe('CustomersService.updateProfile', () => {
   it('allows updating marketingOptIn and orderUpdatesOptIn preferences', async () => {
     const prisma = makePrisma();
-    const service = new CustomersService(prisma, mockWallet, mockAttendance);
+    const service = new CustomersService(prisma, mockWallet, mockAttendance, mockBusinessRules);
 
     await service.updateProfile('cust-1', { marketingOptIn: true, orderUpdatesOptIn: false });
 
@@ -207,7 +218,7 @@ describe('CustomersService.updateProfile', () => {
 
   it('still strips unlisted fields even alongside preference updates', async () => {
     const prisma = makePrisma();
-    const service = new CustomersService(prisma, mockWallet, mockAttendance);
+    const service = new CustomersService(prisma, mockWallet, mockAttendance, mockBusinessRules);
 
     await service.updateProfile('cust-1', { marketingOptIn: true, id: 'hacked', referralCode: 'STEAL' });
 
@@ -221,7 +232,7 @@ describe('CustomersService.updateProfile', () => {
 describe('CustomersService.deleteMyAccount', () => {
   it('anonymizes the customer profile — clears name, photo, address, gym, goals', async () => {
     const prisma = makePrisma();
-    const service = new CustomersService(prisma, mockWallet, mockAttendance);
+    const service = new CustomersService(prisma, mockWallet, mockAttendance, mockBusinessRules);
 
     await service.deleteMyAccount('cust-1', 'user-1');
 
@@ -243,7 +254,7 @@ describe('CustomersService.deleteMyAccount', () => {
 
   it('deletes health-related allergy records entirely, not just anonymizes them', async () => {
     const prisma = makePrisma();
-    const service = new CustomersService(prisma, mockWallet, mockAttendance);
+    const service = new CustomersService(prisma, mockWallet, mockAttendance, mockBusinessRules);
 
     await service.deleteMyAccount('cust-1', 'user-1');
 
@@ -252,7 +263,7 @@ describe('CustomersService.deleteMyAccount', () => {
 
   it('cancels active memberships so the daily cron never bills a deleted account', async () => {
     const prisma = makePrisma();
-    const service = new CustomersService(prisma, mockWallet, mockAttendance);
+    const service = new CustomersService(prisma, mockWallet, mockAttendance, mockBusinessRules);
 
     await service.deleteMyAccount('cust-1', 'user-1');
 
@@ -264,7 +275,7 @@ describe('CustomersService.deleteMyAccount', () => {
 
   it('clears phone/email and deactivates the account, revoking access immediately', async () => {
     const prisma = makePrisma();
-    const service = new CustomersService(prisma, mockWallet, mockAttendance);
+    const service = new CustomersService(prisma, mockWallet, mockAttendance, mockBusinessRules);
 
     await service.deleteMyAccount('cust-1', 'user-1');
 
@@ -276,7 +287,7 @@ describe('CustomersService.deleteMyAccount', () => {
 
   it('does NOT touch Order, Payment, or Refund records — financial history is retained', async () => {
     const prisma = makePrisma();
-    const service = new CustomersService(prisma, mockWallet, mockAttendance);
+    const service = new CustomersService(prisma, mockWallet, mockAttendance, mockBusinessRules);
 
     await service.deleteMyAccount('cust-1', 'user-1');
 
@@ -289,7 +300,7 @@ describe('CustomersService.exportMyData', () => {
   it('assembles the full customer record with related data for the data export', async () => {
     const prisma = makePrisma();
     prisma.customer.findUniqueOrThrow.mockResolvedValue({ id: 'cust-1', name: 'Test' });
-    const service = new CustomersService(prisma, mockWallet, mockAttendance);
+    const service = new CustomersService(prisma, mockWallet, mockAttendance, mockBusinessRules);
 
     await service.exportMyData('cust-1');
 
@@ -321,7 +332,7 @@ describe('CustomersService.getDashboard — profile fields for account settings'
       marketingOptIn: true,
       orderUpdatesOptIn: false,
     });
-    const service = new CustomersService(prisma, mockWallet, mockAttendance);
+    const service = new CustomersService(prisma, mockWallet, mockAttendance, mockBusinessRules);
 
     const result = await service.getDashboard('cust-1');
 

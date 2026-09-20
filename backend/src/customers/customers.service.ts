@@ -3,6 +3,7 @@ import { PrismaService } from '../common/prisma.service';
 import { getLevelForXp } from './levels';
 import { WalletService } from './wallet.service';
 import { AttendanceService } from '../streaks/attendance.service';
+import { BusinessRulesService } from '../common/business-rules.service';
 
 @Injectable()
 export class CustomersService {
@@ -10,6 +11,7 @@ export class CustomersService {
     private prisma: PrismaService,
     private wallet: WalletService,
     private attendance: AttendanceService,
+    private businessRules: BusinessRulesService,
   ) {}
 
   async getWalletTransactions(customerId: string) {
@@ -20,7 +22,7 @@ export class CustomersService {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
-    const [customer, todayLogs, streak, pointsBalance, activeGoal, xpAgg, monthlyProgress] = await Promise.all([
+    const [customer, todayLogs, streak, pointsBalance, activeGoal, xpAgg, monthlyProgress, rules] = await Promise.all([
       this.prisma.customer.findUniqueOrThrow({ where: { id: customerId } }),
       this.prisma.nutritionLog.findMany({
         where: { customerId, loggedAt: { gte: startOfToday } },
@@ -36,6 +38,7 @@ export class CustomersService {
         _sum: { points: true },
       }),
       this.attendance.getMonthlyProgress(this.prisma, customerId),
+      this.businessRules.getRules(),
     ]);
 
     const todayProteinG = todayLogs.reduce((sum: number, l: { proteinG: unknown }) => sum + Number(l.proteinG), 0);
@@ -79,7 +82,7 @@ export class CustomersService {
       points: pointsBalance?.balance ?? 0,
       activeProteinGoalRun: activeGoal,
       xpLevel: getLevelForXp(xp),
-      monthlyChallenge: monthlyProgress,
+      monthlyChallenge: rules.showMonthlyChallengeToCustomers ? monthlyProgress : null,
     };
   }
 

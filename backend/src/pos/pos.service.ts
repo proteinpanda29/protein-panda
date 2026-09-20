@@ -68,6 +68,15 @@ export class PosService {
     });
   }
 
+  /** Verified challenge attempts not yet billed on any order — what POS can offer to add to this sale. */
+  async listBillableChallenges(customerId: string) {
+    return this.prisma.gameAttempt.findMany({
+      where: { customerId, status: 'VERIFIED', billedOrderId: null },
+      orderBy: { playedAt: 'desc' },
+      include: { game: { select: { name: true } } },
+    });
+  }
+
   /**
    * The actual counter sale. Payment is always treated as collected in
    * person (markPaidImmediately) regardless of which method the customer
@@ -86,8 +95,34 @@ export class PosService {
       redemptionId?: string;
       manualDiscountRs?: number;
       idempotencyKey?: string;
+      // A VERIFIED challenge attempt being billed as part of this same
+      // sale — its entry fee is added to the total, and any discount
+      // it earned is applied, both in one transaction with the sale
+      // itself so a challenge is never left half-billed.
+      gameAttemptId?: string;
     },
   ) {
+    let extraChargeRs: number | undefined;
+    let combinedManualDiscountRs = input.manualDiscountRs;
+
+    if (input.gameAttemptId) {
+      const attempt = await this.prisma.gameAttempt.findUniqueOrThrow({ where: { id: input.gameAttemptId } });
+      if (attempt.customerId !== input.customerId) {
+        throw new BadRequestException('This challenge attempt belongs to a different customer');
+      }
+      if (attempt.status !== 'VERIFIED') {
+        throw new BadRequestException('This challenge has not been verified yet — verify the result before billing it');
+      }
+      if (attempt.billedOrderId) {
+        throw new BadRequestException('This challenge has already been billed on a different order');
+      }
+      extraChargeRs = Number(attempt.entryFeeRs ?? 0);
+      const challengeDiscountRs = Number(attempt.discountAppliedRs ?? 0);
+      if (challengeDiscountRs > 0) {
+        combinedManualDiscountRs = (combinedManualDiscountRs ?? 0) + challengeDiscountRs;
+      }
+    }
+
     // UPI genuinely needs to be collected, not just declared — CASH and
     // CARD are confirmed in person by staff (a card machine has its own
     // separate physical confirmation), but there is no equivalent
@@ -109,11 +144,16 @@ export class PosService {
       items: input.items,
       couponCode: input.couponCode,
       redemptionId: input.redemptionId,
-      manualDiscountRs: input.manualDiscountRs,
+      manualDiscountRs: combinedManualDiscountRs,
+      extraChargeRs,
       markPaidImmediately: !isUpi,
       processedByUserId: adminUserId,
       idempotencyKey: input.idempotencyKey,
     });
+
+    if (input.gameAttemptId) {
+      await this.prisma.gameAttempt.update({ where: { id: input.gameAttemptId }, data: { billedOrderId: order.id } });
+    }
 
     if (!isUpi) return order;
 

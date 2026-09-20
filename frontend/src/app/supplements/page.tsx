@@ -75,12 +75,7 @@ export default function SupplementsPage() {
                     )}
                   </div>
                   {s.labCertificateUrl && (
-                  
-                     <a href={s.labCertificateUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="whitespace-nowrap rounded-full bg-brand-primary px-3 py-1.5 text-[10px] font-bold uppercase text-brand-white"
-                    >
+                    <a href={s.labCertificateUrl} target="_blank" rel="noopener noreferrer" className="whitespace-nowrap rounded-full bg-brand-primary px-3 py-1.5 text-[10px] font-bold uppercase text-brand-white">
                       🧪 View Certificate
                     </a>
                   )}

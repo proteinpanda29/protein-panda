@@ -6,12 +6,13 @@ interface ChatMessage {
   content: string;
 }
 
-// gemini-3.5-flash-lite — a fast, lightweight model that's free on
-// Google's AI Studio tier. More than capable for a nutrition chatbot
-// grounded in real menu data. Upgrade to 'gemini-pro-latest' if you
-// need higher quality responses (requires billing enabled on the API
-// key). Check ai.google.dev/gemini-api/docs/pricing for rates.
-const MODEL = 'gemini-3.5-flash-lite';
+// gemini-pro-latest — an alias Google keeps pointed at their current
+// best Pro model (as of this writing, gemini-3-pro-preview), so this
+// never needs manual updating as new Gemini versions ship. Requires
+// billing enabled on the API key — the free AI Studio tier only covers
+// Flash/Flash-Lite models, not Pro. Check ai.google.dev/gemini-api/docs/pricing
+// for current rates before deploying.
+const MODEL = 'gemini-pro-latest';
 const MAX_HISTORY_MESSAGES = 20; // keep requests bounded; frontend can still keep full history locally
 
 /**

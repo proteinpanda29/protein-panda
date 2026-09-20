@@ -6,6 +6,7 @@ function makeHarness() {
     customer: { findMany: jest.fn() },
     user: { findUnique: jest.fn(), create: jest.fn() },
     rewardRedemption: { findMany: jest.fn() },
+    gameAttempt: { findUniqueOrThrow: jest.fn(), findMany: jest.fn(), update: jest.fn() },
   } as any;
   const orders = { create: jest.fn().mockResolvedValue({ id: 'order-1' }) } as any;
   const payments = { createPaymentLinkForOrder: jest.fn().mockResolvedValue({ paymentLinkId: 'plink_1', shortUrl: 'https://rzp.io/i/abc123', orderNumber: 'PP1234' }) } as any;
@@ -184,5 +185,104 @@ describe('PosService.createSale', () => {
     });
 
     expect(payments.createPaymentLinkForOrder).not.toHaveBeenCalled();
+  });
+});
+
+describe('PosService.createSale — billing a game challenge onto the same sale', () => {
+  const baseSale = { customerId: 'cust-1', items: [{ productId: 'p1', quantity: 1 }], paymentMethod: 'CASH' as any };
+
+  it('adds the challenge entry fee as extraChargeRs and folds its discount into manualDiscountRs', async () => {
+    const { service, prisma, orders } = makeHarness();
+    prisma.gameAttempt.findUniqueOrThrow.mockResolvedValue({
+      id: 'attempt-1',
+      customerId: 'cust-1',
+      status: 'VERIFIED',
+      billedOrderId: null,
+      entryFeeRs: 49,
+      discountAppliedRs: 0,
+    });
+
+    await service.createSale('admin-user-1', { ...baseSale, gameAttemptId: 'attempt-1' });
+
+    expect(orders.create).toHaveBeenCalledWith(
+      expect.objectContaining({ extraChargeRs: 49, manualDiscountRs: undefined }),
+    );
+  });
+
+  it('adds a per-rep discount on top of an existing manual discount, rather than replacing it', async () => {
+    const { service, prisma, orders } = makeHarness();
+    prisma.gameAttempt.findUniqueOrThrow.mockResolvedValue({
+      id: 'attempt-1',
+      customerId: 'cust-1',
+      status: 'VERIFIED',
+      billedOrderId: null,
+      entryFeeRs: 49,
+      discountAppliedRs: 75,
+    });
+
+    await service.createSale('admin-user-1', { ...baseSale, manualDiscountRs: 10, gameAttemptId: 'attempt-1' });
+
+    expect(orders.create).toHaveBeenCalledWith(
+      expect.objectContaining({ extraChargeRs: 49, manualDiscountRs: 85 }),
+    );
+  });
+
+  it('marks the attempt as billed against the resulting order', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.gameAttempt.findUniqueOrThrow.mockResolvedValue({
+      id: 'attempt-1',
+      customerId: 'cust-1',
+      status: 'VERIFIED',
+      billedOrderId: null,
+      entryFeeRs: 49,
+      discountAppliedRs: 0,
+    });
+
+    await service.createSale('admin-user-1', { ...baseSale, gameAttemptId: 'attempt-1' });
+
+    expect(prisma.gameAttempt.update).toHaveBeenCalledWith({ where: { id: 'attempt-1' }, data: { billedOrderId: 'order-1' } });
+  });
+
+  it('rejects billing a challenge that belongs to a different customer', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.gameAttempt.findUniqueOrThrow.mockResolvedValue({ id: 'attempt-1', customerId: 'someone-else', status: 'VERIFIED', billedOrderId: null });
+
+    await expect(service.createSale('admin-user-1', { ...baseSale, gameAttemptId: 'attempt-1' })).rejects.toThrow(/different customer/i);
+  });
+
+  it('rejects billing a challenge that has not been verified yet', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.gameAttempt.findUniqueOrThrow.mockResolvedValue({ id: 'attempt-1', customerId: 'cust-1', status: 'AWAITING_VERIFICATION', billedOrderId: null });
+
+    await expect(service.createSale('admin-user-1', { ...baseSale, gameAttemptId: 'attempt-1' })).rejects.toThrow(/not been verified/i);
+  });
+
+  it('rejects billing a challenge that has already been billed on a different order', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.gameAttempt.findUniqueOrThrow.mockResolvedValue({ id: 'attempt-1', customerId: 'cust-1', status: 'VERIFIED', billedOrderId: 'order-999' });
+
+    await expect(service.createSale('admin-user-1', { ...baseSale, gameAttemptId: 'attempt-1' })).rejects.toThrow(/already been billed/i);
+  });
+
+  it('a normal sale with no gameAttemptId never touches gameAttempt at all', async () => {
+    const { service, prisma } = makeHarness();
+
+    await service.createSale('admin-user-1', baseSale);
+
+    expect(prisma.gameAttempt.findUniqueOrThrow).not.toHaveBeenCalled();
+    expect(prisma.gameAttempt.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('PosService.listBillableChallenges', () => {
+  it('only returns this customer\'s VERIFIED, not-yet-billed attempts', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.gameAttempt.findMany.mockResolvedValue([]);
+
+    await service.listBillableChallenges('cust-1');
+
+    expect(prisma.gameAttempt.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { customerId: 'cust-1', status: 'VERIFIED', billedOrderId: null } }),
+    );
   });
 });

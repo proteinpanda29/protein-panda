@@ -89,6 +89,20 @@ export default function MenuPage() {
     });
   };
 
+  // Grouped by category name, in whichever order categories first
+  // appear in the product list — keeps the whole ordering flow on
+  // this one page rather than splitting it into a separate menu
+  // browser, which is the whole point of doing this here rather than
+  // as its own page.
+  const productsByCategory = new Map<string, Product[]>();
+  for (const p of products) {
+    const name = p.category?.name ?? 'Other';
+    if (!productsByCategory.has(name)) productsByCategory.set(name, []);
+    productsByCategory.get(name)!.push(p);
+  }
+  const categoryNames = Array.from(productsByCategory.keys());
+  const slugifyForAnchor = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+
   return (
     <section className="mx-auto max-w-6xl px-4 py-12 pb-28">
       <h1 className="mb-8 text-2xl font-extrabold uppercase tracking-tight text-brand-black">Order Now</h1>
@@ -98,74 +112,93 @@ export default function MenuPage() {
         <p className="text-sm text-brand-body">No products yet — add some from the admin dashboard.</p>
       )}
 
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {products.map((p) => (
-          <div key={p.id} className="rounded-2xl border border-brand-grey bg-brand-white p-5">
-            {p.imageUrl && (
-              <div className="relative mb-3 h-40 w-full overflow-hidden rounded-xl bg-brand-bg">
-                <Image src={p.imageUrl} alt={p.name} fill className="object-cover" sizes="(max-width: 640px) 100vw, 33vw" />
-                <button
-                  onClick={() => toggleFavourite(p.id)}
-                  className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-brand-white/90 text-lg shadow-sm"
-                  title={favouriteIds.has(p.id) ? 'Remove from favourites' : 'Add to favourites'}
-                >
-                  {favouriteIds.has(p.id) ? '❤️' : '🤍'}
-                </button>
-              </div>
-            )}
-            <div className="mb-2 flex items-start justify-between">
-              <h3 className="text-lg font-bold text-brand-black">{p.name}</h3>
-              <div className="flex items-center gap-2">
-                {!p.imageUrl && (
-                  <button
-                    onClick={() => toggleFavourite(p.id)}
-                    className="text-lg"
-                    title={favouriteIds.has(p.id) ? 'Remove from favourites' : 'Add to favourites'}
-                  >
-                    {favouriteIds.has(p.id) ? '❤️' : '🤍'}
-                  </button>
+      {categoryNames.length > 1 && (
+        <div className="mb-8 flex flex-wrap gap-2">
+          {categoryNames.map((name) => (
+            <a
+              key={name}
+              href={`#category-${slugifyForAnchor(name)}`}
+              className="rounded-full border border-brand-grey px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-brand-black hover:border-brand-primary hover:text-brand-primary"
+            >
+              {name}
+            </a>
+          ))}
+        </div>
+      )}
+
+      {categoryNames.map((categoryName) => (
+        <div key={categoryName} id={`category-${slugifyForAnchor(categoryName)}`} className="mb-10 scroll-mt-24">
+          <h2 className="mb-4 text-lg font-extrabold uppercase tracking-wide text-brand-black">{categoryName}</h2>
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {productsByCategory.get(categoryName)!.map((p) => (
+              <div key={p.id} className="rounded-2xl border border-brand-grey bg-brand-white p-5">
+                {p.imageUrl && (
+                  <div className="relative mb-3 h-40 w-full overflow-hidden rounded-xl bg-brand-bg">
+                    <Image src={p.imageUrl} alt={p.name} fill className="object-cover" sizes="(max-width: 640px) 100vw, 33vw" />
+                    <button
+                      onClick={() => toggleFavourite(p.id)}
+                      className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-brand-white/90 text-lg shadow-sm"
+                      title={favouriteIds.has(p.id) ? 'Remove from favourites' : 'Add to favourites'}
+                    >
+                      {favouriteIds.has(p.id) ? '❤️' : '🤍'}
+                    </button>
+                  </div>
                 )}
-                <span className={`h-3 w-3 shrink-0 rounded-full border-2 ${p.isVeg ? 'border-green-600' : 'border-red-600'}`} />
+                <div className="mb-2 flex items-start justify-between">
+                  <h3 className="text-lg font-bold text-brand-black">{p.name}</h3>
+                  <div className="flex items-center gap-2">
+                    {!p.imageUrl && (
+                      <button
+                        onClick={() => toggleFavourite(p.id)}
+                        className="text-lg"
+                        title={favouriteIds.has(p.id) ? 'Remove from favourites' : 'Add to favourites'}
+                      >
+                        {favouriteIds.has(p.id) ? '❤️' : '🤍'}
+                      </button>
+                    )}
+                    <span className={`h-3 w-3 shrink-0 rounded-full border-2 ${p.isVeg ? 'border-green-600' : 'border-red-600'}`} />
+                  </div>
+                </div>
+                {p.nutrition && (
+                  <p className="mb-1 text-xs text-brand-body">
+                    {p.nutrition.proteinG}g protein · {p.nutrition.calories} kcal
+                  </p>
+                )}
+                {p.prepTimeMinutes && (
+                  <p className="mb-1 text-xs text-brand-body">⏱ Ready in ~{p.prepTimeMinutes} min</p>
+                )}
+                {p.allergens && p.allergens.length > 0 && (
+                  <p className="mb-3 flex flex-wrap gap-1">
+                    {p.allergens.map((a) => (
+                      <span key={a.allergen.name} className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold uppercase text-red-700">
+                        ⚠ {a.allergen.name}
+                      </span>
+                    ))}
+                  </p>
+                )}
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-brand-black">₹{p.basePriceRs}</span>
+                  {p.isCustomisable ? (
+                    <button
+                      onClick={() => setCustomizing(p)}
+                      className="rounded-full border-2 border-brand-primary px-4 py-2 text-xs font-bold uppercase tracking-wide text-brand-primary hover:bg-brand-primary hover:text-brand-white"
+                    >
+                      Customise
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => quickAdd(p)}
+                      className="rounded-full bg-brand-primary px-4 py-2 text-xs font-bold uppercase tracking-wide text-brand-white hover:bg-brand-accent"
+                    >
+                      Add
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-            {p.nutrition && (
-              <p className="mb-1 text-xs text-brand-body">
-                {p.nutrition.proteinG}g protein · {p.nutrition.calories} kcal
-              </p>
-            )}
-            {p.prepTimeMinutes && (
-              <p className="mb-1 text-xs text-brand-body">⏱ Ready in ~{p.prepTimeMinutes} min</p>
-            )}
-            {p.allergens && p.allergens.length > 0 && (
-              <p className="mb-3 flex flex-wrap gap-1">
-                {p.allergens.map((a) => (
-                  <span key={a.allergen.name} className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-bold uppercase text-red-700">
-                    ⚠ {a.allergen.name}
-                  </span>
-                ))}
-              </p>
-            )}
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-brand-black">₹{p.basePriceRs}</span>
-              {p.isCustomisable ? (
-                <button
-                  onClick={() => setCustomizing(p)}
-                  className="rounded-full border-2 border-brand-primary px-4 py-2 text-xs font-bold uppercase tracking-wide text-brand-primary hover:bg-brand-primary hover:text-brand-white"
-                >
-                  Customise
-                </button>
-              ) : (
-                <button
-                  onClick={() => quickAdd(p)}
-                  className="rounded-full bg-brand-primary px-4 py-2 text-xs font-bold uppercase tracking-wide text-brand-white hover:bg-brand-accent"
-                >
-                  Add
-                </button>
-              )}
-            </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </div>
+      ))}
 
       {customizing && <CustomizeModal product={customizing} onClose={() => setCustomizing(null)} />}
 

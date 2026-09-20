@@ -51,6 +51,9 @@ export function CustomerNavLinks() {
       <a href="/menu" className="hover:text-brand-accent">Order</a>
       <a href="/orders" className="hover:text-brand-accent">My Orders</a>
       <a href="/nutrition" className="hover:text-brand-accent">My Nutrition</a>
+      <a href="/nutrition-guide" className="hover:text-brand-accent">Nutrition Guide</a>
+      <a href="/games-info" className="hover:text-brand-accent">Challenges</a>
+      <a href="/supplements" className="hover:text-brand-accent">Supplements</a>
 
       <div ref={menuRef} className="relative">
         <button

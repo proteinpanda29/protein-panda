@@ -42,6 +42,14 @@ export class PaymentsController {
     return this.payments.confirmPayment(req.user.customerId, dto);
   }
 
+  @Post('orders/:orderId/tip-upi')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.CUSTOMER)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  createTipPaymentLink(@Req() req: any, @Param('orderId') orderId: string, @Body('amountRs') amountRs: number) {
+    return this.payments.createTipPaymentLink(req.user.customerId, orderId, amountRs);
+  }
+
   /**
    * Razorpay's server-to-server webhook — deliberately has NO auth
    * guard (Razorpay isn't a logged-in user and can't send our JWT).
@@ -76,7 +84,17 @@ export class PaymentsController {
     if (body.event === 'payment_link.paid') {
       const linkId = body.payload?.payment_link?.entity?.id;
       const paymentId = body.payload?.payment?.entity?.id;
-      if (linkId && paymentId) {
+      const referenceId: string | undefined = body.payload?.payment_link?.entity?.reference_id;
+
+      // A tip payment link encodes its target directly in reference_id
+      // (see PaymentsService.createTipPaymentLink) since a tip isn't a
+      // real Order payment and has no Payment row to match against —
+      // checked first so a tip is never mistakenly run through the
+      // real-order confirmation path below.
+      if (referenceId?.startsWith('tip:')) {
+        const [, deliveryOrderId, amountRsStr] = referenceId.split(':');
+        await this.payments.confirmTipPayment(deliveryOrderId, Number(amountRsStr));
+      } else if (linkId && paymentId) {
         await this.payments.confirmPaymentFromWebhook(linkId, paymentId);
       }
     }

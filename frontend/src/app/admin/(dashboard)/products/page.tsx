@@ -58,6 +58,37 @@ export default function AdminProductsPage() {
     }
   };
 
+  const deleteProduct = async (product: ProductRow) => {
+    if (!confirm(`Delete "${product.name}"? This cannot be undone.`)) return;
+    try {
+      await api.adminDeleteProduct(product.id);
+      load();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const deleteCategory = async (category: Category) => {
+    if (!confirm(`Delete category "${category.name}"? This only works if it has no products in it.`)) return;
+    try {
+      await api.adminDeleteCategory(category.id);
+      load();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  // Grouped by category — the same organization the customer-facing
+  // menu now uses, so admins browse products the same way customers
+  // will actually see them, rather than one long undifferentiated list.
+  const productsByCategory = new Map<string, ProductRow[]>();
+  for (const p of products) {
+    const name = p.category.name;
+    if (!productsByCategory.has(name)) productsByCategory.set(name, []);
+    productsByCategory.get(name)!.push(p);
+  }
+  const categoryNames = Array.from(productsByCategory.keys()).sort();
+
   const slugify = (s: string) => s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 
   const submitCategory = async () => {
@@ -120,6 +151,12 @@ export default function AdminProductsPage() {
           >
             {showCategoryForm ? 'Cancel' : '+ Category'}
           </button>
+          <a
+            href="/admin/products/import"
+            className="rounded-full border-2 border-brand-black px-4 py-2 text-xs font-bold uppercase tracking-wide text-brand-black hover:border-brand-primary hover:text-brand-primary"
+          >
+            📄 Bulk Import
+          </a>
           <button
             onClick={() => setShowForm((v) => !v)}
             className="rounded-full bg-brand-primary px-4 py-2 text-xs font-bold uppercase tracking-wide text-brand-white hover:bg-brand-accent"
@@ -137,8 +174,15 @@ export default function AdminProductsPage() {
             <p className="mb-2 text-xs font-bold uppercase tracking-wide text-brand-body">Categories</p>
             <div className="mb-3 flex flex-wrap gap-2">
               {categories.map((c) => (
-                <span key={c.id} className="rounded-full bg-brand-bg px-3 py-1 text-xs font-semibold text-brand-black">
+                <span key={c.id} className="flex items-center gap-2 rounded-full bg-brand-bg px-3 py-1 text-xs font-semibold text-brand-black">
                   {c.name}
+                  <button
+                    onClick={() => deleteCategory(c)}
+                    title="Delete category"
+                    className="text-red-600 hover:text-red-800"
+                  >
+                    ✕
+                  </button>
                 </span>
               ))}
             </div>
@@ -228,31 +272,44 @@ export default function AdminProductsPage() {
         </form>
       )}
 
-      <div className="flex flex-col gap-3">
-        {products.map((p) => (
-          <div key={p.id} className="flex items-center justify-between rounded-2xl border border-brand-grey bg-brand-white p-4">
-            <a href={`/admin/products/${p.id}`} className="flex-1">
-              <p className="font-bold text-brand-black hover:text-brand-primary">{p.name}</p>
-              <p className="text-xs text-brand-body">
-                {p.category.name} · ₹{p.basePriceRs}
-                {p.nutrition ? ` · ${p.nutrition.proteinG}g protein` : ''}
-              </p>
-            </a>
-            <div className="flex items-center gap-2">
-              <a
-                href={`/admin/products/${p.id}`}
-                className="rounded-full border-2 border-brand-black px-4 py-2 text-xs font-bold uppercase tracking-wide text-brand-black hover:border-brand-primary hover:text-brand-primary"
-              >
-                Edit
-              </a>
-              <button
-                onClick={() => toggleActive(p)}
-                className={`rounded-full px-4 py-2 text-xs font-bold uppercase tracking-wide ${
-                  p.isActive ? 'bg-brand-grey/50 text-brand-black' : 'bg-brand-primary text-brand-white'
-                }`}
-              >
-                {p.isActive ? '🔴 Mark Out of Stock' : '🟢 Mark In Stock'}
-              </button>
+      <div className="flex flex-col gap-8">
+        {categoryNames.map((categoryName) => (
+          <div key={categoryName}>
+            <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-brand-body">{categoryName}</h2>
+            <div className="flex flex-col gap-3">
+              {productsByCategory.get(categoryName)!.map((p) => (
+                <div key={p.id} className="flex items-center justify-between rounded-2xl border border-brand-grey bg-brand-white p-4">
+                  <a href={`/admin/products/${p.id}`} className="flex-1">
+                    <p className="font-bold text-brand-black hover:text-brand-primary">{p.name}</p>
+                    <p className="text-xs text-brand-body">
+                      ₹{p.basePriceRs}
+                      {p.nutrition ? ` · ${p.nutrition.proteinG}g protein` : ''}
+                    </p>
+                  </a>
+                  <div className="flex items-center gap-2">
+                    <a
+                      href={`/admin/products/${p.id}`}
+                      className="rounded-full border-2 border-brand-black px-4 py-2 text-xs font-bold uppercase tracking-wide text-brand-black hover:border-brand-primary hover:text-brand-primary"
+                    >
+                      Edit
+                    </a>
+                    <button
+                      onClick={() => toggleActive(p)}
+                      className={`rounded-full px-4 py-2 text-xs font-bold uppercase tracking-wide ${
+                        p.isActive ? 'bg-brand-grey/50 text-brand-black' : 'bg-brand-primary text-brand-white'
+                      }`}
+                    >
+                      {p.isActive ? '🔴 Mark Out of Stock' : '🟢 Mark In Stock'}
+                    </button>
+                    <button
+                      onClick={() => deleteProduct(p)}
+                      className="rounded-full border-2 border-red-600 px-4 py-2 text-xs font-bold uppercase tracking-wide text-red-600 hover:bg-red-600 hover:text-white"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         ))}

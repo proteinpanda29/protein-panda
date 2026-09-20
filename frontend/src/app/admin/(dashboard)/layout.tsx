@@ -19,8 +19,10 @@ const navItems: { label: string; href: string; departments?: (string | null)[] }
   { label: 'Customers', href: '/admin/customers', departments: ['SALES'] },
   { label: 'Support Tickets', href: '/admin/support-tickets', departments: ['SALES'] },
   { label: 'Products', href: '/admin/products', departments: ['SALES'] },
+  { label: 'Ingredients & Allergens', href: '/admin/ingredients-allergens', departments: ['SALES'] },
   { label: '🐼 Kitchen', href: '/admin/kitchen', departments: ['OPERATIONS'] },
   { label: 'Food Safety', href: '/admin/food-safety', departments: ['OPERATIONS'] },
+  { label: 'Supplements', href: '/admin/supplements', departments: ['OPERATIONS'] },
   { label: 'Store Operations', href: '/admin/store-operations', departments: ['OPERATIONS'] },
   { label: 'Staff Shifts', href: '/admin/staff-shifts', departments: ['OPERATIONS'] },
   { label: 'Inventory', href: '/admin/inventory', departments: ['SUPPLY_CHAIN'] },
@@ -29,6 +31,7 @@ const navItems: { label: string; href: string; departments?: (string | null)[] }
   { label: 'Costing', href: '/admin/costing', departments: ['SUPPLY_CHAIN'] },
   { label: 'Rewards', href: '/admin/rewards', departments: ['LOYALTY'] },
   { label: 'Games', href: '/admin/games', departments: ['LOYALTY'] },
+  { label: 'Challenge Dashboard', href: '/admin/challenges', departments: ['LOYALTY'] },
   { label: 'Delivery Riders', href: '/admin/delivery', departments: ['DELIVERY_LOGISTICS'] },
   { label: 'Delivery Zones', href: '/admin/delivery-zones', departments: ['DELIVERY_LOGISTICS'] },
   { label: 'Cash', href: '/admin/cash', departments: ['FINANCE_MARKETING'] },
@@ -42,6 +45,7 @@ const navItems: { label: string; href: string; departments?: (string | null)[] }
   { label: 'Staff Accounts', href: '/admin/staff', departments: [null] },
   { label: 'Shop Settings', href: '/admin/settings', departments: [null] },
   { label: 'Business Rules', href: '/admin/business-rules', departments: [null] },
+  { label: 'QR Codes', href: '/admin/qr-codes', departments: [null] },
   { label: 'Audit Log', href: '/admin/audit-log', departments: [null] },
 ];
 

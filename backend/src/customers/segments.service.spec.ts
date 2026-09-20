@@ -57,14 +57,43 @@ describe('SegmentsService.getSegment', () => {
     expect(call.where.status).toBe('ACTIVE');
   });
 
-  it('MEMBERSHIP_EXPIRING_SOON: only looks within the next 7 days, not all future expirations', async () => {
+  it('MEMBERSHIP_EXPIRING_SOON: includes a membership whose startDate + totalDays falls within the next 7 days', async () => {
+    const { service, prisma } = makeHarness();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - 27); // 27 days ago
+    prisma.membership.findMany.mockResolvedValue([
+      { startDate, totalDays: 30, customer: { id: 'cust-1', name: 'Ravi' } }, // ends in 3 days — expiring soon
+    ]);
+
+    const result = await service.getSegment('MEMBERSHIP_EXPIRING_SOON');
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual(expect.objectContaining({ id: 'cust-1', name: 'Ravi' }));
+  });
+
+  it('MEMBERSHIP_EXPIRING_SOON: excludes a membership that ended in the past or is not due for weeks', async () => {
+    const { service, prisma } = makeHarness();
+    const startedYesterday = new Date();
+    startedYesterday.setDate(startedYesterday.getDate() - 1);
+    const startedLongAgo = new Date();
+    startedLongAgo.setDate(startedLongAgo.getDate() - 60);
+    prisma.membership.findMany.mockResolvedValue([
+      { startDate: startedYesterday, totalDays: 30, customer: { id: 'cust-1', name: 'Ravi' } }, // ends in ~29 days — not soon
+      { startDate: startedLongAgo, totalDays: 30, customer: { id: 'cust-2', name: 'Priya' } }, // already ended
+    ]);
+
+    const result = await service.getSegment('MEMBERSHIP_EXPIRING_SOON');
+
+    expect(result).toEqual([]);
+  });
+
+  it('MEMBERSHIP_EXPIRING_SOON: only ever queries memberships with status ACTIVE', async () => {
     const { service, prisma } = makeHarness();
 
     await service.getSegment('MEMBERSHIP_EXPIRING_SOON');
 
     const call = prisma.membership.findMany.mock.calls[0][0];
-    const rangeDays = (call.where.endDate.lte.getTime() - call.where.endDate.gte.getTime()) / (1000 * 60 * 60 * 24);
-    expect(Math.round(rangeDays)).toBe(7);
+    expect(call.where).toEqual({ status: 'ACTIVE' });
   });
 
   it('CLOSE_TO_MONTHLY_REWARD: includes customers with 10-14 visits, excludes those with fewer than 10 or already at 15', async () => {

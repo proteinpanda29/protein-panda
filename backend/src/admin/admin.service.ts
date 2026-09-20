@@ -581,6 +581,25 @@ export class AdminService {
     return updated;
   }
 
+  /**
+   * Same foreign-key-safe pattern as deleteCategory below — a product
+   * that's ever actually been ordered (OrderItem.productId) can't be
+   * deleted outright without corrupting that order's own history, so
+   * this is the correct, safe outcome rather than a bug to route
+   * around. "Disable" (isActive: false via updateProduct) remains the
+   * right tool for retiring a product that has order history.
+   */
+  async deleteProduct(id: string) {
+    try {
+      return await this.prisma.product.delete({ where: { id } });
+    } catch (err: any) {
+      if (err.code === 'P2003') {
+        throw new BadRequestException('This product has existing orders and can\'t be deleted — use "Disable" instead to hide it from the menu.');
+      }
+      throw err;
+    }
+  }
+
   async getProductDetail(id: string) {
     return this.prisma.product.findUniqueOrThrow({
       where: { id },
@@ -602,8 +621,118 @@ export class AdminService {
     return this.prisma.productCategory.create({ data });
   }
 
-  async updateCategory(id: string, data: Partial<{ name: string; slug: string }>) {
+  /**
+   * Bulk menu import — the whole point is letting a full menu (many
+   * categories, many items) be added in one upload instead of clicking
+   * through the admin form dozens of times. Idempotent by product
+   * slug: re-uploading the same JSON after editing a price or a rough
+   * nutrition estimate updates the existing product in place rather
+   * than creating a duplicate, since that's exactly the "I'll edit it
+   * later" workflow this exists for. Categories are matched by name,
+   * created automatically the first time a new one appears.
+   */
+  async bulkImportMenu(items: {
+    category: string;
+    name: string;
+    priceRs: number;
+    isVeg?: boolean;
+    description?: string;
+    nutrition?: NutritionInput;
+  }[]) {
+    const results: { name: string; status: 'created' | 'updated' | 'failed'; error?: string }[] = [];
+    const categoryIdByName = new Map<string, string>();
+
+    const slugify = (text: string) =>
+      text
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+
+    for (const item of items) {
+      try {
+        if (!item.category?.trim()) throw new BadRequestException('category is required');
+        if (!item.name?.trim()) throw new BadRequestException('name is required');
+        if (item.priceRs === undefined || item.priceRs < 0) throw new BadRequestException('priceRs is required and cannot be negative');
+
+        let categoryId = categoryIdByName.get(item.category);
+        if (!categoryId) {
+          const categorySlug = slugify(item.category);
+          const category = await this.prisma.productCategory.upsert({
+            where: { slug: categorySlug },
+            create: { name: item.category, slug: categorySlug },
+            update: {},
+          });
+          categoryId = category.id;
+          categoryIdByName.set(item.category, category.id);
+        }
+
+        const productSlug = slugify(item.name);
+        const existing = await this.prisma.product.findUnique({ where: { slug: productSlug } });
+
+        if (existing) {
+          await this.prisma.product.update({
+            where: { id: existing.id },
+            data: {
+              name: item.name,
+              categoryId,
+              basePriceRs: item.priceRs,
+              isVeg: item.isVeg ?? true,
+              description: item.description,
+              ...(item.nutrition ? { nutrition: { upsert: { create: item.nutrition, update: item.nutrition } } } : {}),
+            },
+          });
+          results.push({ name: item.name, status: 'updated' });
+        } else {
+          await this.prisma.product.create({
+            data: {
+              name: item.name,
+              slug: productSlug,
+              categoryId,
+              basePriceRs: item.priceRs,
+              isVeg: item.isVeg ?? true,
+              description: item.description,
+              ...(item.nutrition ? { nutrition: { create: item.nutrition } } : {}),
+            },
+          });
+          results.push({ name: item.name, status: 'created' });
+        }
+      } catch (err: any) {
+        results.push({ name: item.name ?? '(unnamed)', status: 'failed', error: err.message ?? String(err) });
+      }
+    }
+
+    return {
+      totalItems: items.length,
+      created: results.filter((r) => r.status === 'created').length,
+      updated: results.filter((r) => r.status === 'updated').length,
+      failed: results.filter((r) => r.status === 'failed').length,
+      results,
+    };
+  }
+
+  async updateCategory(id: string, data: Partial<{ name: string; slug: string; isActive: boolean }>) {
     return this.prisma.productCategory.update({ where: { id }, data });
+  }
+
+  /**
+   * Foreign-key-safe delete — a category with existing products can't
+   * actually be removed from the database (Product.categoryId still
+   * points at it), and that's the correct outcome: silently cascading
+   * would delete every product in it, and silently ignoring the
+   * constraint would corrupt referential integrity. Catch Prisma's
+   * P2003 specifically and turn it into a clear, actionable message
+   * instead of a raw database error reaching the admin UI.
+   */
+  async deleteCategory(id: string) {
+    try {
+      return await this.prisma.productCategory.delete({ where: { id } });
+    } catch (err: any) {
+      if (err.code === 'P2003') {
+        throw new BadRequestException('This category still has products in it — move or delete those first, or use "Disable" instead.');
+      }
+      throw err;
+    }
   }
 
   // ---- Allergens ----
@@ -614,6 +743,23 @@ export class AdminService {
 
   async createAllergen(name: string) {
     return this.prisma.allergen.create({ data: { name } });
+  }
+
+  async updateAllergen(id: string, data: Partial<{ name: string; isActive: boolean }>) {
+    return this.prisma.allergen.update({ where: { id }, data });
+  }
+
+  /**
+   * Allergen's own links (ProductAllergen, CustomerAllergy) both cascade
+   * on delete in the schema, so this genuinely can succeed even for a
+   * widely-used allergen — but that's exactly the case where "Disable"
+   * is almost certainly what's actually wanted (hide it from new
+   * selection without silently unlinking it from every product and
+   * customer that already declared it). No foreign-key catch needed
+   * here since cascade means it structurally can't fail that way.
+   */
+  async deleteAllergen(id: string) {
+    return this.prisma.allergen.delete({ where: { id } });
   }
 
   /** Replaces the full set of allergen links for a product in one go. */
@@ -658,6 +804,29 @@ export class AdminService {
 
   async listIngredientsPlain() {
     return this.prisma.ingredient.findMany({ orderBy: { name: 'asc' } });
+  }
+
+  async updateIngredient(id: string, data: Partial<{ name: string; unit: string; isActive: boolean }>) {
+    return this.prisma.ingredient.update({ where: { id }, data });
+  }
+
+  /**
+   * Same foreign-key-safe pattern as deleteProduct/deleteCategory —
+   * an ingredient that's ever been purchased (PurchaseLine) or
+   * requested (PurchaseRequest) can't be deleted without losing that
+   * real purchasing history, so this is the correct outcome rather
+   * than a bug. "Disable" remains the right tool for retiring an
+   * ingredient no longer used in any recipe.
+   */
+  async deleteIngredient(id: string) {
+    try {
+      return await this.prisma.ingredient.delete({ where: { id } });
+    } catch (err: any) {
+      if (err.code === 'P2003') {
+        throw new BadRequestException('This ingredient has purchase or recipe history and can\'t be deleted — use "Disable" instead.');
+      }
+      throw err;
+    }
   }
 
   async setProductIngredient(productId: string, ingredientId: string, quantity: number) {
@@ -1133,6 +1302,23 @@ export class AdminService {
     return updated;
   }
 
+  /**
+   * Same foreign-key-safe pattern — a reward that's ever been redeemed
+   * (RewardRedemption) can't be deleted without losing that redemption
+   * history. "Disable" remains the right tool for retiring one no
+   * longer offered.
+   */
+  async deleteReward(id: string) {
+    try {
+      return await this.prisma.reward.delete({ where: { id } });
+    } catch (err: any) {
+      if (err.code === 'P2003') {
+        throw new BadRequestException('This reward has already been redeemed by customers and can\'t be deleted — use "Disable" instead.');
+      }
+      throw err;
+    }
+  }
+
   // ---- Coupons ----
 
   async listCoupons() {
@@ -1200,6 +1386,23 @@ export class AdminService {
     return updated;
   }
 
+  /**
+   * Same foreign-key-safe pattern — a coupon that's ever actually been
+   * used on an order (Order.couponId) can't be deleted without losing
+   * that order's own record of which discount applied. "Disable"
+   * remains the right tool for retiring one no longer valid.
+   */
+  async deleteCoupon(id: string) {
+    try {
+      return await this.prisma.coupon.delete({ where: { id } });
+    } catch (err: any) {
+      if (err.code === 'P2003') {
+        throw new BadRequestException('This coupon has already been used on real orders and can\'t be deleted — use "Disable" instead.');
+      }
+      throw err;
+    }
+  }
+
   // ---- Games & Levels ----
 
   async listGames() {
@@ -1209,15 +1412,56 @@ export class AdminService {
     });
   }
 
-  async createGame(data: { name: string; description?: string }) {
+  async createGame(data: {
+    name: string;
+    description?: string;
+    rules?: string;
+    howToParticipate?: string;
+    rewardDescription?: string;
+    imageUrl?: string;
+    entryFeeRs?: number;
+    freeAttemptMinPurchaseRs?: number;
+    sortOrder?: number;
+  }) {
     if (!data.name?.trim()) throw new BadRequestException('Game name is required');
     const existing = await this.prisma.game.findUnique({ where: { name: data.name } });
     if (existing) throw new BadRequestException('A game with this name already exists');
-    return this.prisma.game.create({ data: { name: data.name.trim(), description: data.description } });
+    return this.prisma.game.create({ data: { ...data, name: data.name.trim() } });
   }
 
-  async updateGame(id: string, data: Partial<{ name: string; description: string; isActive: boolean }>) {
+  async updateGame(
+    id: string,
+    data: Partial<{
+      name: string;
+      description: string;
+      isActive: boolean;
+      rules: string;
+      howToParticipate: string;
+      rewardDescription: string;
+      imageUrl: string;
+      entryFeeRs: number;
+      freeAttemptMinPurchaseRs: number;
+      sortOrder: number;
+    }>,
+  ) {
     return this.prisma.game.update({ where: { id }, data });
+  }
+
+  /**
+   * Same foreign-key-safe pattern — a game that's ever actually been
+   * played (GameAttempt.gameId) can't be deleted without losing that
+   * attempt history. "Disable" remains the right tool for retiring a
+   * challenge no longer offered.
+   */
+  async deleteGame(id: string) {
+    try {
+      return await this.prisma.game.delete({ where: { id } });
+    } catch (err: any) {
+      if (err.code === 'P2003') {
+        throw new BadRequestException('This game has recorded attempts and can\'t be deleted — use "Disable" instead.');
+      }
+      throw err;
+    }
   }
 
   async createGameLevel(

@@ -304,21 +304,6 @@ async function main() {
     create: { userId: deliveryUser.id, name: 'Delivery Demo', vehicleInfo: 'Bike KA01AB1234' },
   });
 
-  // ---------------------------------------------------------
-  // REAL OWNER ACCOUNT — email-based login for production use.
-  // This is the actual business owner; the phone-based test
-  // accounts above are for development/demo purposes only.
-  const ownerUser = await prisma.user.upsert({
-    where: { email: 'proteinpanda29@gmail.com' },
-    update: { role: 'ADMIN' },
-    create: { email: 'proteinpanda29@gmail.com', role: 'ADMIN', isActive: true },
-  });
-  await prisma.staff.upsert({
-    where: { userId: ownerUser.id },
-    update: { departments: [] },
-    create: { userId: ownerUser.id, name: 'Protein Panda Owner', position: 'Owner', departments: [] },
-  });
-
   console.log('Seed complete:', { chocShake: chocShake.id });
 }
 

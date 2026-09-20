@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
 import { OrdersGateway } from '../common/orders.gateway';
 import { OrdersService } from '../orders/orders.service';
+import { PaymentsService } from '../payments/payments.service';
 
 // Rider-facing actions. Note "PICKED_UP" is a delivery-side checkpoint only —
 // it is not a value in the OrderStatus enum, so it updates the DeliveryOrder
@@ -29,6 +30,7 @@ export class DeliveryService {
     private prisma: PrismaService,
     private gateway: OrdersGateway,
     private orders: OrdersService,
+    private payments: PaymentsService,
   ) {}
 
   // Only ever returns orders assigned to THIS delivery person —
@@ -75,6 +77,40 @@ export class DeliveryService {
    */
   async getProfile(deliveryPersonId: string) {
     return this.prisma.deliveryPerson.findUniqueOrThrow({ where: { id: deliveryPersonId } });
+  }
+
+  /**
+   * Lets a rider offer UPI as an on-the-spot alternative to physical
+   * cash for a COD order — generates a real Razorpay Payment Link for
+   * the exact pending amount, which the rider shows as a QR code for
+   * the customer to scan. Switches Payment.method from CASH to UPI
+   * immediately (not waiting for the payment to actually complete),
+   * since from this moment the physical cash drawer is no longer
+   * getting this money — an accurate method now is what keeps end-of-
+   * day cash reconciliation correct, rather than silently expecting
+   * cash that was never actually collected. The order itself becomes
+   * PAID the normal way, through the same Razorpay webhook every
+   * other online/UPI payment already confirms through.
+   */
+  async createCashCollectionPaymentLink(deliveryPersonId: string, deliveryOrderId: string) {
+    const record = await this.prisma.deliveryOrder.findUniqueOrThrow({
+      where: { id: deliveryOrderId },
+      include: { order: { include: { payment: true } } },
+    });
+    if (record.deliveryPersonId !== deliveryPersonId) {
+      throw new ForbiddenException('This order is not assigned to you');
+    }
+    if (!record.order.payment) throw new BadRequestException('No payment record for this order');
+    if (record.order.payment.method !== 'CASH') {
+      throw new BadRequestException('This order is not a cash-on-delivery payment');
+    }
+    if (record.order.payment.status === 'PAID') {
+      throw new BadRequestException('This order has already been paid');
+    }
+
+    await this.prisma.payment.update({ where: { id: record.order.payment.id }, data: { method: 'UPI' } });
+
+    return this.payments.createPaymentLinkForOrder(record.order.id);
   }
 
   /**

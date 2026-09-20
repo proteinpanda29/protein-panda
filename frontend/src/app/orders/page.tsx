@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import { api } from '@/lib/api';
 import { siteConfig } from '@/lib/siteConfig';
 import { payForOrder } from '@/lib/razorpay';
@@ -36,6 +37,7 @@ export default function OrdersPage() {
   const [error, setError] = useState<string | null>(null);
   const [reviewingProduct, setReviewingProduct] = useState<string | null>(null);
   const [ratingOrder, setRatingOrder] = useState<string | null>(null);
+  const [tippingOrder, setTippingOrder] = useState<string | null>(null);
   const [billOrder, setBillOrder] = useState<string | null>(null);
   const [cancellingOrder, setCancellingOrder] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -234,6 +236,25 @@ export default function OrdersPage() {
                     Rate your delivery
                   </button>
                 )}
+                <div className="mt-2">
+                  {tippingOrder === order.id ? (
+                    <TipForm
+                      orderId={order.id}
+                      onDone={(msg) => {
+                        setMessage(msg);
+                        setTippingOrder(null);
+                      }}
+                      onClose={() => setTippingOrder(null)}
+                    />
+                  ) : (
+                    <button
+                      onClick={() => setTippingOrder(order.id)}
+                      className="text-xs font-semibold text-brand-primary underline"
+                    >
+                      💚 Tip your delivery person
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -411,6 +432,100 @@ function DeliveryRatingForm({ orderId, onDone }: { orderId: string; onDone: (msg
       >
         {saving ? 'Submitting…' : 'Submit Rating'}
       </button>
+    </div>
+  );
+}
+
+const TIP_PRESETS = [20, 30, 50, 100];
+
+function TipForm({ orderId, onDone, onClose }: { orderId: string; onDone: (msg: string) => void; onClose: () => void }) {
+  const [amount, setAmount] = useState(30);
+  const [method, setMethod] = useState<'WALLET' | 'UPI'>('WALLET');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [upiLink, setUpiLink] = useState<{ shortUrl: string } | null>(null);
+
+  const submit = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      if (method === 'WALLET') {
+        await api.tipDeliveryPerson(orderId, amount);
+        onDone('Thank you — your tip has been sent! 💚');
+      } else {
+        // A real payment link, not wallet debit — the tip is applied
+        // to the delivery the moment Razorpay confirms it was paid,
+        // same as any other Razorpay payment in this app.
+        const link = await api.createTipPaymentLink(orderId, amount);
+        setUpiLink(link);
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (upiLink) {
+    return (
+      <div className="rounded-xl bg-brand-bg p-4 text-center">
+        <p className="mb-3 text-xs font-bold uppercase tracking-wide text-brand-body">Scan or open the link to pay your ₹{amount} tip</p>
+        <div className="mb-3 flex justify-center rounded-xl bg-brand-white p-4">
+          <QRCodeSVG value={upiLink.shortUrl} size={160} />
+        </div>
+        <a href={upiLink.shortUrl} target="_blank" rel="noreferrer" className="mb-3 block text-xs font-semibold text-brand-primary underline">
+          Open payment link directly
+        </a>
+        <button onClick={() => onDone('Once your payment goes through, your tip is applied automatically. 💚')} className="text-xs font-semibold text-brand-body underline">
+          Done
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl bg-brand-bg p-3">
+      <p className="mb-2 text-xs font-bold uppercase tracking-wide text-brand-body">Tip your delivery person</p>
+      <div className="mb-3 flex flex-wrap gap-2">
+        {TIP_PRESETS.map((preset) => (
+          <button
+            key={preset}
+            onClick={() => setAmount(preset)}
+            className={`rounded-full border-2 px-3 py-1 text-xs font-semibold ${
+              amount === preset ? 'border-brand-primary bg-brand-primary text-brand-white' : 'border-brand-grey text-brand-black'
+            }`}
+          >
+            ₹{preset}
+          </button>
+        ))}
+      </div>
+      <p className="mb-1 text-[10px] font-bold uppercase text-brand-body">Pay with</p>
+      <div className="mb-3 flex gap-2">
+        {(['WALLET', 'UPI'] as const).map((m) => (
+          <button
+            key={m}
+            onClick={() => setMethod(m)}
+            className={`flex-1 rounded-full border-2 py-2 text-xs font-bold uppercase ${
+              method === m ? 'border-brand-primary bg-brand-primary text-brand-white' : 'border-brand-grey text-brand-black'
+            }`}
+          >
+            {m === 'WALLET' ? '💳 Wallet' : '📱 UPI / Other'}
+          </button>
+        ))}
+      </div>
+      {error && <p className="mb-2 text-xs text-red-600">{error}</p>}
+      <div className="flex gap-2">
+        <button
+          onClick={submit}
+          disabled={saving}
+          className="flex-1 rounded-full bg-brand-primary px-4 py-2 text-xs font-bold uppercase tracking-wide text-brand-white hover:bg-brand-accent disabled:opacity-60"
+        >
+          {saving ? 'Processing…' : `Tip ₹${amount}`}
+        </button>
+        <button onClick={onClose} className="rounded-full border-2 border-brand-black px-4 py-2 text-xs font-bold uppercase text-brand-black">
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

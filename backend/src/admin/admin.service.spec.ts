@@ -7,7 +7,7 @@ function makeHarness() {
     orderItem: { findMany: jest.fn().mockResolvedValue([]), groupBy: jest.fn().mockResolvedValue([]) },
     deliveryPerson: { findUnique: jest.fn(), findMany: jest.fn() },
     deliveryOrder: { update: jest.fn(), count: jest.fn(), findFirst: jest.fn() },
-    ingredient: { create: jest.fn(), findMany: jest.fn() },
+    ingredient: { create: jest.fn(), findMany: jest.fn(), update: jest.fn(), delete: jest.fn() },
     inventoryItem: { create: jest.fn(), update: jest.fn() },
     stockMovement: { create: jest.fn() },
     ingredientBatch: {
@@ -16,20 +16,20 @@ function makeHarness() {
       findMany: jest.fn(),
       findUniqueOrThrow: jest.fn(),
     },
-    product: { update: jest.fn(), findUniqueOrThrow: jest.fn(), findUnique: jest.fn(), findMany: jest.fn() },
+    product: { update: jest.fn(), findUniqueOrThrow: jest.fn(), findUnique: jest.fn(), findMany: jest.fn(), delete: jest.fn(), create: jest.fn() },
     customer: { count: jest.fn().mockResolvedValue(0), findUniqueOrThrow: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     pointsLedgerEntry: { aggregate: jest.fn().mockResolvedValue({ _sum: { points: 0 } }), findMany: jest.fn().mockResolvedValue([]) },
     user: { update: jest.fn().mockResolvedValue({}) },
-    productCategory: { create: jest.fn(), update: jest.fn() },
-    allergen: { findMany: jest.fn(), create: jest.fn() },
+    productCategory: { create: jest.fn(), update: jest.fn(), delete: jest.fn(), upsert: jest.fn() },
+    allergen: { findMany: jest.fn(), create: jest.fn(), update: jest.fn(), delete: jest.fn() },
     productAllergen: { deleteMany: jest.fn(), createMany: jest.fn(), findMany: jest.fn() },
     productAddon: { create: jest.fn(), update: jest.fn(), delete: jest.fn() },
     productIngredient: { upsert: jest.fn(), delete: jest.fn() },
-    reward: { findMany: jest.fn(), create: jest.fn(), update: jest.fn(), findUnique: jest.fn() },
+    reward: { findMany: jest.fn(), create: jest.fn(), update: jest.fn(), findUnique: jest.fn(), delete: jest.fn() },
     aiSafetyFlag: { findMany: jest.fn() },
-    game: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
+    game: { findMany: jest.fn(), findUnique: jest.fn(), create: jest.fn(), update: jest.fn(), delete: jest.fn() },
     gameLevel: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn(), delete: jest.fn() },
-    coupon: { findMany: jest.fn(), create: jest.fn(), update: jest.fn(), findUnique: jest.fn() },
+    coupon: { findMany: jest.fn(), create: jest.fn(), update: jest.fn(), findUnique: jest.fn(), delete: jest.fn() },
     $transaction: jest.fn().mockImplementation((arg: any) => (typeof arg === 'function' ? arg(prisma) : Promise.all(arg))),
   } as any;
   const orders = { grantOrderRewards: jest.fn().mockResolvedValue(undefined), notifyStatusChange: jest.fn().mockResolvedValue(undefined) } as any;
@@ -335,6 +335,256 @@ describe('AdminService.getKitchenQueue', () => {
     const call = prisma.order.findMany.mock.calls[0][0];
     expect(call.include.customer.include.allergies).toBeDefined();
     expect(call.include.items.include.addons).toBeDefined();
+  });
+});
+
+describe('AdminService delete methods — foreign-key safety', () => {
+  const p2003 = Object.assign(new Error('FK violation'), { code: 'P2003' });
+
+  it('deleteProduct surfaces a clear message when the product has real orders', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.product.delete.mockRejectedValue(p2003);
+
+    await expect(service.deleteProduct('p1')).rejects.toThrow(/existing orders/i);
+  });
+
+  it('deleteProduct succeeds normally when there is no conflict', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.product.delete.mockResolvedValue({ id: 'p1' });
+
+    await expect(service.deleteProduct('p1')).resolves.toEqual({ id: 'p1' });
+  });
+
+  it('deleteProduct re-throws any error that is not a P2003 conflict', async () => {
+    const { service, prisma } = makeHarness();
+    const otherError = new Error('something else broke');
+    prisma.product.delete.mockRejectedValue(otherError);
+
+    await expect(service.deleteProduct('p1')).rejects.toThrow('something else broke');
+  });
+
+  it('deleteCategory surfaces a clear message when it still has products', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.productCategory.delete.mockRejectedValue(p2003);
+
+    await expect(service.deleteCategory('c1')).rejects.toThrow(/still has products/i);
+  });
+
+  it('deleteIngredient surfaces a clear message when it has purchase history', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.ingredient.delete.mockRejectedValue(p2003);
+
+    await expect(service.deleteIngredient('i1')).rejects.toThrow(/purchase or recipe history/i);
+  });
+
+  it('deleteCoupon surfaces a clear message when it has been used on orders', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.coupon.delete.mockRejectedValue(p2003);
+
+    await expect(service.deleteCoupon('cp1')).rejects.toThrow(/already been used/i);
+  });
+
+  it('deleteReward surfaces a clear message when it has been redeemed', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.reward.delete.mockRejectedValue(p2003);
+
+    await expect(service.deleteReward('r1')).rejects.toThrow(/already been redeemed/i);
+  });
+
+  it('deleteGame surfaces a clear message when it has recorded attempts', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.game.delete.mockRejectedValue(p2003);
+
+    await expect(service.deleteGame('g1')).rejects.toThrow(/recorded attempts/i);
+  });
+
+  it('deleteAllergen deletes cleanly (its links cascade in the schema)', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.allergen.delete.mockResolvedValue({ id: 'a1' });
+
+    await expect(service.deleteAllergen('a1')).resolves.toEqual({ id: 'a1' });
+  });
+});
+
+describe('AdminService update methods — new isActive fields', () => {
+  it('updateIngredient passes isActive through to prisma', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.ingredient.update.mockResolvedValue({ id: 'i1', isActive: false });
+
+    await service.updateIngredient('i1', { isActive: false });
+
+    expect(prisma.ingredient.update).toHaveBeenCalledWith({ where: { id: 'i1' }, data: { isActive: false } });
+  });
+
+  it('updateAllergen passes isActive through to prisma', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.allergen.update.mockResolvedValue({ id: 'a1', isActive: false });
+
+    await service.updateAllergen('a1', { isActive: false });
+
+    expect(prisma.allergen.update).toHaveBeenCalledWith({ where: { id: 'a1' }, data: { isActive: false } });
+  });
+
+  it('updateCategory accepts isActive alongside name/slug', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.productCategory.update.mockResolvedValue({ id: 'c1', isActive: false });
+
+    await service.updateCategory('c1', { isActive: false });
+
+    expect(prisma.productCategory.update).toHaveBeenCalledWith({ where: { id: 'c1' }, data: { isActive: false } });
+  });
+});
+
+describe('AdminService.bulkImportMenu', () => {
+  it('creates a new category and product together for a brand new item', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.productCategory.upsert.mockResolvedValue({ id: 'cat-1' });
+    prisma.product.findUnique.mockResolvedValue(null);
+    prisma.product.create.mockResolvedValue({ id: 'p1' });
+
+    const result = await service.bulkImportMenu([{ category: 'Instant Oats', name: 'Fruits & Nuts', priceRs: 129 }]);
+
+    expect(result.created).toBe(1);
+    expect(result.failed).toBe(0);
+    expect(prisma.product.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ categoryId: 'cat-1', basePriceRs: 129 }) }),
+    );
+  });
+
+  it('reuses one category lookup across multiple items in the same category (does not re-query per item)', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.productCategory.upsert.mockResolvedValue({ id: 'cat-1' });
+    prisma.product.findUnique.mockResolvedValue(null);
+    prisma.product.create.mockResolvedValue({ id: 'p1' });
+
+    await service.bulkImportMenu([
+      { category: 'Instant Oats', name: 'Item One', priceRs: 100 },
+      { category: 'Instant Oats', name: 'Item Two', priceRs: 110 },
+    ]);
+
+    expect(prisma.productCategory.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it('updates an existing product in place when re-uploaded with the same name (idempotent by slug)', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.productCategory.upsert.mockResolvedValue({ id: 'cat-1' });
+    prisma.product.findUnique.mockResolvedValue({ id: 'existing-1' });
+    prisma.product.update.mockResolvedValue({ id: 'existing-1' });
+
+    const result = await service.bulkImportMenu([{ category: 'Instant Oats', name: 'Fruits & Nuts', priceRs: 135 }]);
+
+    expect(result.updated).toBe(1);
+    expect(result.created).toBe(0);
+    expect(prisma.product.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'existing-1' }, data: expect.objectContaining({ basePriceRs: 135 }) }),
+    );
+  });
+
+  it('records a per-item failure without aborting the rest of the batch', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.productCategory.upsert.mockResolvedValue({ id: 'cat-1' });
+    prisma.product.findUnique.mockResolvedValue(null);
+    prisma.product.create.mockResolvedValueOnce({ id: 'p1' }).mockRejectedValueOnce(new Error('db exploded'));
+
+    const result = await service.bulkImportMenu([
+      { category: 'Instant Oats', name: 'Good Item', priceRs: 100 },
+      { category: 'Instant Oats', name: 'Bad Item', priceRs: 100 },
+    ]);
+
+    expect(result.created).toBe(1);
+    expect(result.failed).toBe(1);
+    expect(result.results[1].status).toBe('failed');
+  });
+
+  it('rejects an item missing a required field as a per-item failure, not a thrown exception', async () => {
+    const { service } = makeHarness();
+
+    const result = await service.bulkImportMenu([{ category: '', name: 'No Category', priceRs: 100 }] as any);
+
+    expect(result.failed).toBe(1);
+    expect(result.results[0].status).toBe('failed');
+  });
+
+  it('includes nutrition data when provided', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.productCategory.upsert.mockResolvedValue({ id: 'cat-1' });
+    prisma.product.findUnique.mockResolvedValue(null);
+    prisma.product.create.mockResolvedValue({ id: 'p1' });
+
+    await service.bulkImportMenu([
+      { category: 'Instant Oats', name: 'Fruits & Nuts', priceRs: 129, nutrition: { calories: 320, proteinG: 10, carbsG: 45, fatG: 8, fibreG: 6 } },
+    ]);
+
+    expect(prisma.product.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ nutrition: { create: expect.objectContaining({ calories: 320 }) } }) }),
+    );
+  });
+});
+
+describe('AdminService.getDailySalesSummary', () => {
+  it('groups real orders by calendar day, counting bills and summing totals correctly', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.order.findMany.mockResolvedValue([
+      { totalRs: 150, createdAt: new Date('2026-09-18T10:00:00Z') },
+      { totalRs: 250, createdAt: new Date('2026-09-18T18:30:00Z') },
+      { totalRs: 400, createdAt: new Date('2026-09-17T09:00:00Z') },
+    ]);
+
+    const result = await service.getDailySalesSummary(30);
+
+    expect(result).toEqual([
+      { date: '2026-09-18', billCount: 2, totalSalesRs: 400 },
+      { date: '2026-09-17', billCount: 1, totalSalesRs: 400 },
+    ]);
+  });
+
+  it('returns most recent day first', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.order.findMany.mockResolvedValue([
+      { totalRs: 100, createdAt: new Date('2026-09-01T10:00:00Z') },
+      { totalRs: 100, createdAt: new Date('2026-09-15T10:00:00Z') },
+      { totalRs: 100, createdAt: new Date('2026-09-10T10:00:00Z') },
+    ]);
+
+    const result = await service.getDailySalesSummary(30);
+
+    expect(result.map((r: { date: string }) => r.date)).toEqual(['2026-09-15', '2026-09-10', '2026-09-01']);
+  });
+
+  it('returns an empty array, not an error, when there are no orders in the range', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.order.findMany.mockResolvedValue([]);
+
+    const result = await service.getDailySalesSummary(30);
+
+    expect(result).toEqual([]);
+  });
+
+  it('excludes cancelled orders from the query, matching getPosAnalytics\' own rule', async () => {
+    const { service, prisma } = makeHarness();
+
+    await service.getDailySalesSummary(7);
+
+    const call = prisma.order.findMany.mock.calls[0][0];
+    expect(call.where.status).toEqual({ not: 'CANCELLED' });
+  });
+
+  it('defaults to 30 days when no argument is given', async () => {
+    const { service, prisma } = makeHarness();
+
+    await service.getDailySalesSummary();
+
+    // Compare against today's own midnight minus 30 days, not
+    // Date.now() — the method truncates to midnight, so comparing
+    // against the current moment (which includes elapsed hours) rounds
+    // up to 31 in the afternoon/evening depending on what time this
+    // test happens to run, even though the logic itself is correct.
+    const expectedStart = new Date();
+    expectedStart.setDate(expectedStart.getDate() - 30);
+    expectedStart.setHours(0, 0, 0, 0);
+
+    const call = prisma.order.findMany.mock.calls[0][0];
+    expect(call.where.createdAt.gte.getTime()).toBe(expectedStart.getTime());
   });
 });
 

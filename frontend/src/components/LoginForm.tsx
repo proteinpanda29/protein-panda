@@ -32,12 +32,6 @@ export function LoginForm({ portal, title, subtitle, allowSignup, redirectPath, 
   const submitIdentifier = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-
-    if (!isEmail) {
-      setError('Please enter a valid email address');
-      return;
-    }
-
     setLoading(true);
     try {
       await api.requestOtp(identifier);
@@ -95,13 +89,13 @@ export function LoginForm({ portal, title, subtitle, allowSignup, redirectPath, 
           )}
           <form onSubmit={submitIdentifier} className="flex flex-col gap-4">
             <label className="text-xs font-semibold uppercase tracking-wide text-brand-body">
-              Email address
+              Mobile number or email
               <input
-                type="email"
+                type="text"
                 required
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
-                placeholder="you@example.com"
+                placeholder="+91 9xxxxxxxxx or you@example.com"
                 className="mt-1 w-full rounded-lg border border-brand-grey bg-brand-white px-4 py-3 text-brand-black outline-none focus:border-brand-primary"
               />
             </label>
@@ -120,7 +114,7 @@ export function LoginForm({ portal, title, subtitle, allowSignup, redirectPath, 
       {step === 'otp' && (
         <form onSubmit={submitOtp} className="flex flex-col gap-4">
           <label className="text-xs font-semibold uppercase tracking-wide text-brand-body">
-            Enter the 6-digit code sent to your email
+            Enter the 6-digit code sent to your {isEmail ? 'email' : 'phone'}
             <input
               type="text"
               required
@@ -172,11 +166,10 @@ export function LoginForm({ portal, title, subtitle, allowSignup, redirectPath, 
             onClick={() => setStep('identifier')}
             className="text-xs font-semibold uppercase tracking-wide text-brand-body underline"
           >
-            Use a different email
+            Use a different number or email
           </button>
         </form>
       )}
     </section>
   );
 }
-

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../common/roles.guard';
@@ -42,6 +42,11 @@ export class DeliveryController {
   @Patch('duty')
   setDuty(@Req() req: any, @Body('isOnDuty') isOnDuty: boolean) {
     return this.delivery.setDutyStatus(req.user.deliveryPersonId, isOnDuty);
+  }
+
+  @Post(':deliveryOrderId/cash-collection/upi')
+  createCashCollectionPaymentLink(@Req() req: any, @Param('deliveryOrderId') deliveryOrderId: string) {
+    return this.delivery.createCashCollectionPaymentLink(req.user.deliveryPersonId, deliveryOrderId);
   }
 
   @Patch(':deliveryOrderId/location')

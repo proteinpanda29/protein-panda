@@ -1,10 +1,16 @@
 import { GamesService } from './games.service';
 
 function makeHarness() {
-  const prisma = { customer: { findMany: jest.fn() } } as any;
+  const prisma = {
+    customer: { findMany: jest.fn() },
+    game: { findUnique: jest.fn() },
+    gameAttempt: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0), create: jest.fn(), findUniqueOrThrow: jest.fn(), update: jest.fn() },
+    order: { findFirst: jest.fn() },
+    $transaction: jest.fn().mockImplementation((fn: any) => fn(prisma)),
+  } as any;
   const redis = { zrevrange: jest.fn() } as any;
-  const points = {} as any;
-  const achievements = {} as any;
+  const points = { award: jest.fn().mockResolvedValue(undefined) } as any;
+  const achievements = { checkGameAchievements: jest.fn().mockResolvedValue(undefined) } as any;
   const service = new GamesService(prisma, redis, points, achievements);
   return { service, prisma, redis };
 }
@@ -76,5 +82,88 @@ describe('GamesService.getGymLeaderboard', () => {
     prisma.customer.findMany.mockResolvedValue([]);
 
     await expect(service.getGymLeaderboard()).resolves.toEqual([]);
+  });
+});
+
+describe('GamesService.createChallengeAttempt — free-attempt eligibility', () => {
+  it('charges the real entry fee when there is no ≥₹150 qualifying order', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.game.findUnique.mockResolvedValue({ id: 'g1', isActive: true, entryFeeRs: 49, freeAttemptMinPurchaseRs: 150 });
+    prisma.order.findFirst.mockResolvedValue(null);
+    prisma.gameAttempt.create.mockImplementation(({ data }: any) => data);
+
+    const result = await service.createChallengeAttempt('cust-1', 'g1');
+
+    expect(result.unlockedFreeAttempt).toBe(false);
+    expect(result.entryFeeRs).toBe(49);
+    expect(result.status).toBe('PENDING_PAYMENT');
+  });
+
+  it('grants a free attempt when a real ≥₹150 order exists and has not been used for this game before', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.game.findUnique.mockResolvedValue({ id: 'g1', isActive: true, entryFeeRs: 49, freeAttemptMinPurchaseRs: 150 });
+    prisma.order.findFirst.mockResolvedValue({ id: 'order-1' });
+    prisma.gameAttempt.create.mockImplementation(({ data }: any) => data);
+
+    const result = await service.createChallengeAttempt('cust-1', 'g1');
+
+    expect(result.unlockedFreeAttempt).toBe(true);
+    expect(result.entryFeeRs).toBe(0);
+    expect(result.qualifyingOrderId).toBe('order-1');
+    expect(result.status).toBe('IN_PROGRESS');
+  });
+
+  it('excludes an order already spent on a previous free attempt for the same game', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.game.findUnique.mockResolvedValue({ id: 'g1', isActive: true, entryFeeRs: 49, freeAttemptMinPurchaseRs: 150 });
+    prisma.gameAttempt.findMany.mockResolvedValue([{ qualifyingOrderId: 'order-1' }]);
+    prisma.order.findFirst.mockResolvedValue(null); // simulating the DB itself excluding order-1
+
+    await service.createChallengeAttempt('cust-1', 'g1');
+
+    const call = prisma.order.findFirst.mock.calls[0][0];
+    expect(call.where.id.notIn).toContain('order-1');
+  });
+
+  it('a free game (no entry fee, e.g. Coin Balance) skips payment entirely regardless of purchase history', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.game.findUnique.mockResolvedValue({ id: 'g2', isActive: true, entryFeeRs: 0, freeAttemptMinPurchaseRs: null });
+    prisma.gameAttempt.create.mockImplementation(({ data }: any) => data);
+
+    const result = await service.createChallengeAttempt('cust-1', 'g2');
+
+    expect(result.status).toBe('IN_PROGRESS');
+    expect(result.entryFeeRs).toBe(0);
+    expect(prisma.order.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('rejects a challenge for an inactive or nonexistent game', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.game.findUnique.mockResolvedValue(null);
+
+    await expect(service.createChallengeAttempt('cust-1', 'ghost')).rejects.toThrow(/not found|not.*active/i);
+  });
+});
+
+describe('GamesService challenge lifecycle guards', () => {
+  it('confirmChallengePayment rejects an attempt that is not waiting on payment', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.gameAttempt.findUniqueOrThrow.mockResolvedValue({ id: 'a1', status: 'IN_PROGRESS' });
+
+    await expect(service.confirmChallengePayment('a1')).rejects.toThrow(/not waiting on payment/i);
+  });
+
+  it('recordChallengeResult rejects an attempt that is not in progress', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.gameAttempt.findUniqueOrThrow.mockResolvedValue({ id: 'a1', status: 'PENDING_PAYMENT', game: {} });
+
+    await expect(service.recordChallengeResult('a1', 100, 0, 'staff-1')).rejects.toThrow(/not currently in progress/i);
+  });
+
+  it('verifyChallengeAttempt rejects an attempt with no result awaiting verification', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.gameAttempt.findUniqueOrThrow.mockResolvedValue({ id: 'a1', status: 'IN_PROGRESS' });
+
+    await expect(service.verifyChallengeAttempt('a1', 'staff-1')).rejects.toThrow(/no recorded result/i);
   });
 });

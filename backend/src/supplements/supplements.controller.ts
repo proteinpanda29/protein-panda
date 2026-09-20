@@ -7,6 +7,7 @@ import { DepartmentGuard } from '../common/department.guard';
 import { Departments } from '../common/departments.decorator';
 import { PermissionLevelGuard } from '../common/permission-level.guard';
 import { SupplementsService } from './supplements.service';
+import { UploadsService } from '../admin/uploads.service';
 
 @Controller('supplements')
 export class SupplementsController {
@@ -25,7 +26,19 @@ export class SupplementsController {
 @Roles(Role.ADMIN)
 @Departments(StaffDepartment.OPERATIONS)
 export class AdminSupplementsController {
-  constructor(private supplements: SupplementsService) {}
+  constructor(
+    private supplements: SupplementsService,
+    private uploads: UploadsService,
+  ) {}
+
+  // Hardcoded to the supplements folder, never caller-supplied — same
+  // reasoning as the existing products/reviews upload endpoints: a
+  // fixed whitelist stops any caller from signing a request for a
+  // folder they shouldn't be able to touch.
+  @Get('upload-signature')
+  getUploadSignature() {
+    return this.uploads.getUploadSignature('protein-panda/supplements');
+  }
 
   @Get()
   listAll() {

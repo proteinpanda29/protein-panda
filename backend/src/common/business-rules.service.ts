@@ -8,6 +8,7 @@ export interface BusinessRules {
   loyaltyMultiplier: number;
   monthlyVisitTarget: number;
   requiredChallengesPerMonth: number;
+  showMonthlyChallengeToCustomers: boolean;
 }
 
 @Injectable()
@@ -31,7 +32,12 @@ export class BusinessRulesService {
 
   async updateRules(data: Partial<BusinessRules>) {
     for (const [key, value] of Object.entries(data)) {
-      if (value !== undefined && value <= 0) {
+      // Only the numeric knobs need a positive-number check —
+      // showMonthlyChallengeToCustomers is a boolean, and `false <= 0`
+      // is true in JavaScript (false coerces to 0), which would
+      // wrongly reject turning this toggle off if it went through the
+      // same check as the numeric fields.
+      if (typeof value === 'number' && value <= 0) {
         throw new BadRequestException(`${key} must be a positive number`);
       }
     }

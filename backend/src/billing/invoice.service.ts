@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { createHmac } from 'crypto';
 import { PrismaService } from '../common/prisma.service';
 import { EmailService } from '../notifications/email.service';
 
@@ -10,6 +11,25 @@ export class InvoiceService {
     private prisma: PrismaService,
     private email: EmailService,
   ) {}
+
+  /**
+   * A stateless, unguessable token for one specific order — what lets
+   * a WhatsApp link open an invoice PDF without the recipient logging
+   * in at all (WhatsApp has no way to carry an auth session). HMAC
+   * against JWT_SECRET rather than a random per-order value stored in
+   * the database — nothing new to persist, and it's exactly as hard
+   * to forge as a JWT already is, since it uses the same secret.
+   */
+  generateInvoiceAccessToken(orderId: string): string {
+    return createHmac('sha256', process.env.JWT_SECRET ?? 'dev-secret')
+      .update(orderId)
+      .digest('hex')
+      .slice(0, 32);
+  }
+
+  verifyInvoiceAccessToken(orderId: string, token: string): boolean {
+    return this.generateInvoiceAccessToken(orderId) === token;
+  }
 
   private async loadOrderForInvoice(orderId: string) {
     return this.prisma.order.findUniqueOrThrow({
@@ -109,5 +129,10 @@ export class InvoiceService {
       throw new Error('This order does not belong to you');
     }
     return order;
+  }
+
+  /** Ownership-unchecked variant for the token-verified public WhatsApp invoice route — the token itself is what proves the right to view this specific order. */
+  async getInvoiceDataUnchecked(orderId: string) {
+    return this.loadOrderForInvoice(orderId);
   }
 }

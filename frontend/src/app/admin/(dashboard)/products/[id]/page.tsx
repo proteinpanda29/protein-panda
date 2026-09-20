@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
 
 interface Nutrition {
+  servingSizeG: string | null;
   calories: number;
   proteinG: string;
   carbsG: string;
@@ -255,6 +256,7 @@ function ImageCard({ productId, imageUrl, onSaved }: { productId: string; imageU
 
 function NutritionCard({ productId, nutrition, onSaved }: { productId: string; nutrition: Nutrition | null; onSaved: () => void }) {
   const [calories, setCalories] = useState(String(nutrition?.calories ?? ''));
+  const [servingSizeG, setServingSizeG] = useState(nutrition?.servingSizeG ?? '');
   const [proteinG, setProteinG] = useState(nutrition?.proteinG ?? '');
   const [carbsG, setCarbsG] = useState(nutrition?.carbsG ?? '');
   const [fatG, setFatG] = useState(nutrition?.fatG ?? '');
@@ -297,6 +299,7 @@ function NutritionCard({ productId, nutrition, onSaved }: { productId: string; n
     try {
       await api.adminUpdateProduct(productId, {
         nutrition: {
+          servingSizeG: servingSizeG ? Number(servingSizeG) : null,
           calories: Number(calories || 0),
           proteinG: Number(proteinG || 0),
           carbsG: Number(carbsG || 0),
@@ -315,7 +318,8 @@ function NutritionCard({ productId, nutrition, onSaved }: { productId: string; n
 
   return (
     <Card title="Nutrition (per unit)">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-6">
+        <NumField label="Approx. Serving (g)" value={servingSizeG ?? ''} onChange={setServingSizeG} />
         <NumField label="Calories" value={calories} onChange={setCalories} />
         <NumField label="Protein (g)" value={proteinG} onChange={setProteinG} />
         <NumField label="Carbs (g)" value={carbsG} onChange={setCarbsG} />

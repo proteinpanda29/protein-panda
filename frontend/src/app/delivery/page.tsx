@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import { api } from '@/lib/api';
 import { useOrderUpdates } from '@/lib/useOrderUpdates';
 import { logout } from '@/lib/session';
@@ -213,6 +214,22 @@ function DeliveryCard({
 }) {
   const [otpInput, setOtpInput] = useState('');
   const [showFailureForm, setShowFailureForm] = useState(false);
+  const [upiLink, setUpiLink] = useState<{ shortUrl: string } | null>(null);
+  const [generatingUpi, setGeneratingUpi] = useState(false);
+  const [upiError, setUpiError] = useState<string | null>(null);
+
+  const generateUpiQr = async () => {
+    setGeneratingUpi(true);
+    setUpiError(null);
+    try {
+      const link = await api.createCashCollectionPaymentLink(d.id);
+      setUpiLink(link);
+    } catch (err: any) {
+      setUpiError(err.message);
+    } finally {
+      setGeneratingUpi(false);
+    }
+  };
   const [failureReason, setFailureReason] = useState(FAILURE_REASONS[0].value);
   const [failureNote, setFailureNote] = useState('');
 
@@ -268,6 +285,31 @@ function DeliveryCard({
       )}
       {d.deliveryInstructions && <p className="mb-1 text-xs text-brand-body">Note: {d.deliveryInstructions}</p>}
       <p className="mb-4 text-xs font-semibold text-brand-body">{paymentBadge}</p>
+
+      {d.order.payment?.method === 'CASH' && d.order.payment.status !== 'PAID' && (
+        <div className="mb-4">
+          {upiLink ? (
+            <div className="rounded-xl bg-brand-bg p-4 text-center">
+              <p className="mb-2 text-xs font-bold uppercase text-brand-body">Customer scans to pay ₹{d.order.totalRs}</p>
+              <div className="mb-2 flex justify-center rounded-xl bg-brand-white p-3">
+                <QRCodeSVG value={upiLink.shortUrl} size={140} />
+              </div>
+              <a href={upiLink.shortUrl} target="_blank" rel="noreferrer" className="text-xs font-semibold text-brand-primary underline">
+                Open link directly
+              </a>
+            </div>
+          ) : (
+            <button
+              onClick={generateUpiQr}
+              disabled={generatingUpi}
+              className="w-full rounded-full border-2 border-brand-primary py-2.5 text-xs font-bold uppercase tracking-wide text-brand-primary hover:bg-brand-primary hover:text-brand-white disabled:opacity-60"
+            >
+              {generatingUpi ? 'Generating…' : '📱 Collect via UPI instead'}
+            </button>
+          )}
+          {upiError && <p className="mt-2 text-xs text-red-600">{upiError}</p>}
+        </div>
+      )}
 
       {isFailed && d.failureReason && (
         <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">

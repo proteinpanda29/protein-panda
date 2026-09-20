@@ -32,6 +32,16 @@ async function request(path: string, options: RequestInit = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
+      // Only declare a JSON content-type when there's actually a body
+      // to describe — a GET request has no body at all, and declaring
+      // `Content-Type: application/json` on one anyway made Fastify's
+      // strict body parser reject it outright ("Body cannot be empty
+      // when content-type is set to 'application/json'"), breaking
+      // every GET request through this helper. This went undetected
+      // all session because every boot-test check used curl, which
+      // was never set up to send this header on GET calls the way a
+      // real browser's fetch() here always was — found only once a
+      // real person used a real browser against a real deployment.
       ...(options.body ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
@@ -41,6 +51,10 @@ async function request(path: string, options: RequestInit = {}) {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
 
+    // A 401 means the session token is invalid or stale (e.g. the account
+    // it points to no longer exists — this happens after a database
+    // reset during development). Clear it so the app doesn't keep
+    // silently sending a dead token; the person just needs to log in again.
     if (res.status === 401 && typeof window !== 'undefined') {
       localStorage.removeItem('pp_token');
       localStorage.removeItem('pp_role');
@@ -73,6 +87,7 @@ export const api = {
   listProducts: (category?: string) => request(`/products${category ? `?category=${category}` : ''}`),
   listSupplementBrands: () => request('/supplements'),
   adminListSupplements: () => request('/admin/supplements'),
+  adminSupplementUploadSignature: () => request('/admin/supplements/upload-signature'),
   adminCreateSupplementBrand: (payload: unknown) => request('/admin/supplements/brands', { method: 'POST', body: JSON.stringify(payload) }),
   adminUpdateSupplementBrand: (id: string, payload: unknown) => request(`/admin/supplements/brands/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   adminDeleteSupplementBrand: (id: string) => request(`/admin/supplements/brands/${id}`, { method: 'DELETE' }),
@@ -80,6 +95,15 @@ export const api = {
   adminUpdateSupplementProduct: (id: string, payload: unknown) => request(`/admin/supplements/products/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   adminDeleteSupplementProduct: (id: string) => request(`/admin/supplements/products/${id}`, { method: 'DELETE' }),
   listGamesInfo: () => request('/games'),
+
+  // Full challenge system (Pay & Play)
+  myChallengeHistory: () => request('/games/my-challenges'),
+  createChallenge: (gameId: string) => request('/games/challenges', { method: 'POST', body: JSON.stringify({ gameId }) }),
+  adminConfirmChallengePayment: (attemptId: string) => request(`/games/challenges/${attemptId}/confirm-payment`, { method: 'POST' }),
+  adminRecordChallengeResult: (attemptId: string, resultMetric: number, purchaseAmountRs: number) =>
+    request(`/games/challenges/${attemptId}/result`, { method: 'PATCH', body: JSON.stringify({ resultMetric, purchaseAmountRs }) }),
+  adminVerifyChallengeAttempt: (attemptId: string) => request(`/games/challenges/${attemptId}/verify`, { method: 'PATCH' }),
+  adminChallengeDashboard: () => request('/games/challenges/dashboard'),
   createOrder: (payload: unknown) => request('/orders', { method: 'POST', body: JSON.stringify(payload) }),
   myOrders: (cursor?: string) => request(`/orders/mine${cursor ? `?cursor=${cursor}` : ''}`),
   getOrder: (orderId: string) => request(`/orders/${orderId}`),
@@ -113,6 +137,7 @@ export const api = {
   posCreateWalkIn: (name: string, identifier: string) =>
     request('/admin/pos/customers', { method: 'POST', body: JSON.stringify({ name, identifier }) }),
   posCreateSale: (payload: unknown) => request('/admin/pos/orders', { method: 'POST', body: JSON.stringify(payload) }),
+  posBillableChallenges: (customerId: string) => request(`/admin/pos/customers/${customerId}/billable-challenges`),
   posAvailableRedemptions: (customerId: string) => request(`/admin/pos/customers/${customerId}/redemptions`),
   adminOrders: (status?: string) => request(`/admin/orders${status ? `?status=${status}` : ''}`),
   adminDownloadInvoicePdf: (orderId: string, orderNumber?: string) =>
@@ -173,9 +198,12 @@ export const api = {
   adminCreateCategory: (payload: unknown) => request('/admin/categories', { method: 'POST', body: JSON.stringify(payload) }),
   adminUpdateCategory: (id: string, payload: unknown) =>
     request(`/admin/categories/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  adminDeleteCategory: (id: string) => request(`/admin/categories/${id}`, { method: 'DELETE' }),
   adminCreateProduct: (payload: unknown) => request('/admin/products', { method: 'POST', body: JSON.stringify(payload) }),
+  adminBulkImportMenu: (items: unknown[]) => request('/admin/products/bulk-import', { method: 'POST', body: JSON.stringify({ items }) }),
   adminUpdateProduct: (id: string, payload: unknown) =>
     request(`/admin/products/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  adminDeleteProduct: (id: string) => request(`/admin/products/${id}`, { method: 'DELETE' }),
   adminGetUploadSignature: () => request('/admin/uploads/signature'),
   myAddresses: () => request('/addresses'),
   createAddress: (payload: unknown) => request('/addresses', { method: 'POST', body: JSON.stringify(payload) }),
@@ -223,6 +251,8 @@ export const api = {
   removeFavourite: (productId: string) => request(`/favourites/${productId}`, { method: 'DELETE' }),
   adminAllergens: () => request('/admin/allergens'),
   adminCreateAllergen: (name: string) => request('/admin/allergens', { method: 'POST', body: JSON.stringify({ name }) }),
+  adminUpdateAllergen: (id: string, payload: unknown) => request(`/admin/allergens/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  adminDeleteAllergen: (id: string) => request(`/admin/allergens/${id}`, { method: 'DELETE' }),
   adminSetProductAllergens: (productId: string, allergenIds: string[]) =>
     request(`/admin/products/${productId}/allergens`, { method: 'PATCH', body: JSON.stringify({ allergenIds }) }),
   adminCreateAddon: (productId: string, payload: unknown) =>
@@ -231,6 +261,8 @@ export const api = {
     request(`/admin/addons/${addonId}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   adminDeleteAddon: (addonId: string) => request(`/admin/addons/${addonId}`, { method: 'DELETE' }),
   adminIngredients: () => request('/admin/ingredients'),
+  adminUpdateIngredient: (id: string, payload: unknown) => request(`/admin/ingredients/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  adminDeleteIngredient: (id: string) => request(`/admin/ingredients/${id}`, { method: 'DELETE' }),
 
   // Suppliers & purchases
   adminSuppliers: () => request('/admin/suppliers'),
@@ -267,18 +299,22 @@ export const api = {
   adminCreateReward: (payload: unknown) => request('/admin/rewards', { method: 'POST', body: JSON.stringify(payload) }),
   adminUpdateReward: (id: string, payload: unknown) =>
     request(`/admin/rewards/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  adminDeleteReward: (id: string) => request(`/admin/rewards/${id}`, { method: 'DELETE' }),
 
   // Coupons
   adminCoupons: () => request('/admin/coupons'),
   adminCreateCoupon: (payload: unknown) => request('/admin/coupons', { method: 'POST', body: JSON.stringify(payload) }),
   adminUpdateCoupon: (id: string, payload: unknown) =>
     request(`/admin/coupons/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  adminDeleteCoupon: (id: string) => request(`/admin/coupons/${id}`, { method: 'DELETE' }),
 
   // Games & Levels
   adminGames: () => request('/admin/games'),
+  adminGameUploadSignature: () => request('/games/upload-signature'),
   adminCreateGame: (payload: unknown) => request('/admin/games', { method: 'POST', body: JSON.stringify(payload) }),
   adminUpdateGame: (id: string, payload: unknown) =>
     request(`/admin/games/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  adminDeleteGame: (id: string) => request(`/admin/games/${id}`, { method: 'DELETE' }),
   adminCreateGameLevel: (gameId: string, payload: unknown) =>
     request(`/admin/games/${gameId}/levels`, { method: 'POST', body: JSON.stringify(payload) }),
   adminUpdateGameLevel: (levelId: string, payload: unknown) =>
@@ -295,6 +331,8 @@ export const api = {
   deliverySetDuty: (isOnDuty: boolean) => request('/delivery/duty', { method: 'PATCH', body: JSON.stringify({ isOnDuty }) }),
   deliveryUpdateLocation: (deliveryOrderId: string, lat: number, lng: number) =>
     request(`/delivery/${deliveryOrderId}/location`, { method: 'PATCH', body: JSON.stringify({ lat, lng }) }),
+  createCashCollectionPaymentLink: (deliveryOrderId: string) =>
+    request(`/delivery/${deliveryOrderId}/cash-collection/upi`, { method: 'POST' }),
 
   // Shop status
   getShopStatus: () => request('/shop/status'),
@@ -349,6 +387,7 @@ export const api = {
   addProductReview: (productId: string, rating: number, comment?: string, photoUrls?: string[]) =>
     request(`/products/${productId}/reviews`, { method: 'POST', body: JSON.stringify({ rating, comment, photoUrls }) }),
   tipDeliveryPerson: (orderId: string, amountRs: number) => request(`/orders/${orderId}/tip`, { method: 'POST', body: JSON.stringify({ amountRs }) }),
+  createTipPaymentLink: (orderId: string, amountRs: number) => request(`/payments/orders/${orderId}/tip-upi`, { method: 'POST', body: JSON.stringify({ amountRs }) }),
   setDeliveryPreference: (orderId: string, preference: 'DONT_RING_BELL' | 'LEAVE_AT_DOOR') =>
     request(`/orders/${orderId}/delivery-preference`, { method: 'POST', body: JSON.stringify({ preference }) }),
   getReviewUploadSignature: () => request('/products/reviews/upload-signature'),

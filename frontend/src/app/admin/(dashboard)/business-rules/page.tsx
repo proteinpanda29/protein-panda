@@ -8,6 +8,7 @@ export default function BusinessRulesPage() {
   const [loyaltyMultiplier, setLoyaltyMultiplier] = useState('2');
   const [monthlyVisitTarget, setMonthlyVisitTarget] = useState('15');
   const [requiredChallengesPerMonth, setRequiredChallengesPerMonth] = useState('1');
+  const [showMonthlyChallengeToCustomers, setShowMonthlyChallengeToCustomers] = useState(true);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -21,6 +22,7 @@ export default function BusinessRulesPage() {
         setLoyaltyMultiplier(String(r.loyaltyMultiplier));
         setMonthlyVisitTarget(String(r.monthlyVisitTarget));
         setRequiredChallengesPerMonth(String(r.requiredChallengesPerMonth));
+        setShowMonthlyChallengeToCustomers(r.showMonthlyChallengeToCustomers ?? true);
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
@@ -40,6 +42,7 @@ export default function BusinessRulesPage() {
         loyaltyMultiplier: Number(loyaltyMultiplier),
         monthlyVisitTarget: Number(monthlyVisitTarget),
         requiredChallengesPerMonth: Number(requiredChallengesPerMonth),
+        showMonthlyChallengeToCustomers,
       });
       setSaved(true);
     } catch (err: any) {
@@ -109,6 +112,16 @@ export default function BusinessRulesPage() {
         <p className="mb-6 text-xs text-brand-body">
           A customer becomes reward-eligible after {monthlyVisitTarget} qualifying visits and {requiredChallengesPerMonth} completed fitness challenge{requiredChallengesPerMonth === '1' ? '' : 's'} within a calendar month.
         </p>
+
+        <label className="mb-6 flex items-center justify-between rounded-lg bg-brand-bg px-3 py-2.5 text-sm font-semibold text-brand-black">
+          Show "This Month's Challenge" card to customers
+          <input
+            type="checkbox"
+            checked={showMonthlyChallengeToCustomers}
+            onChange={(e) => setShowMonthlyChallengeToCustomers(e.target.checked)}
+            className="h-5 w-5 accent-brand-primary"
+          />
+        </label>
 
         {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
         {saved && <p className="mb-3 text-sm text-brand-primary">Saved — takes effect immediately.</p>}

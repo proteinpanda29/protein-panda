@@ -30,7 +30,7 @@ interface Dashboard {
     challengeTarget: number;
     challengeComplete: boolean;
     rewardEligible: boolean;
-  };
+  } | null;
 }
 
 interface Achievement {
@@ -140,7 +140,7 @@ export default function NutritionPage() {
         <StatCard label="🎯 Goal" value={data.goal ?? 'Not set'} />
       </div>
 
-      <MonthlyChallengeCard challenge={data.monthlyChallenge} />
+      {data.monthlyChallenge && <MonthlyChallengeCard challenge={data.monthlyChallenge} />}
 
       {!data.dailyProteinGoalG && (
         <a
@@ -193,7 +193,7 @@ function StatCard({ label, value }: { label: string; value: string }) {
   );
 }
 
-function MonthlyChallengeCard({ challenge }: { challenge: Dashboard['monthlyChallenge'] }) {
+function MonthlyChallengeCard({ challenge }: { challenge: NonNullable<Dashboard['monthlyChallenge']> }) {
   const visitPct = Math.min((challenge.visitsThisMonth / challenge.visitTarget) * 100, 100);
 
   return (

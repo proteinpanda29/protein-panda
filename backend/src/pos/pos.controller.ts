@@ -25,6 +25,11 @@ export class PosController {
     return this.pos.listAvailableRedemptions(id);
   }
 
+  @Get('customers/:id/billable-challenges')
+  billableChallenges(@Param('id') id: string) {
+    return this.pos.listBillableChallenges(id);
+  }
+
   @Post('customers')
   createWalkInCustomer(@Body() body: { name: string; identifier: string }) {
     return this.pos.createWalkInCustomer(body.name, body.identifier);

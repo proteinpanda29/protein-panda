@@ -4,9 +4,10 @@ import { DeliveryController } from './delivery.controller';
 import { PrismaService } from '../common/prisma.service';
 import { RealtimeModule } from '../common/realtime.module';
 import { OrdersModule } from '../orders/orders.module';
+import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
-  imports: [RealtimeModule, OrdersModule],
+  imports: [RealtimeModule, OrdersModule, PaymentsModule],
   controllers: [DeliveryController],
   providers: [DeliveryService, PrismaService],
 })

@@ -7,6 +7,7 @@ const GROUPS = [
   { title: 'Order', links: [{ href: '/menu', label: 'Menu' }, { href: '/orders', label: 'My Orders' }, { href: '/favourites', label: 'Favourites' }, { href: '/membership', label: 'Membership' }] },
   { title: 'Me', links: [{ href: '/nutrition', label: 'My Nutrition' }, { href: '/report', label: 'Monthly Report' }, { href: '/account', label: 'Account' }, { href: '/notifications', label: 'Notifications' }] },
   { title: 'Play & Earn', links: [{ href: '/games', label: 'Games' }, { href: '/rewards', label: 'Rewards' }, { href: '/leaderboard', label: 'Leaderboard' }] },
+  { title: 'Learn More', links: [{ href: '/nutrition-guide', label: 'Nutrition Guide' }, { href: '/games-info', label: 'Challenges & Rules' }, { href: '/supplements', label: 'Supplements We Use' }] },
   { title: 'Help', links: [{ href: '/support', label: 'Support' }] },
 ];
 

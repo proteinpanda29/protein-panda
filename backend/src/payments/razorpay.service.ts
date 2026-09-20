@@ -1,4 +1,13 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
+// TypeScript's import-equals syntax — the correct, interop-setting-
+// independent way to import a module that uses `export = X` (which is
+// exactly what the real razorpay package does: `module.exports =
+// Razorpay` in plain CommonJS terms). A default import here
+// (`import Razorpay from 'razorpay'`) type-checks fine under this
+// project's `allowSyntheticDefaultImports`, but compiles to JavaScript
+// that looks for a `.default` property which genuinely doesn't exist
+// on the real package — that mismatch is exactly what crashed
+// production with "razorpay_1.default is not a constructor".
 import Razorpay = require('razorpay');
 import * as crypto from 'crypto';
 
@@ -53,13 +62,13 @@ export class RazorpayService {
    * support first; Payment Links work immediately with a standard
    * account.
    */
-  async createPaymentLink(params: { amountRs: number; orderId: string; orderNumber: string }) {
+  async createPaymentLink(params: { amountRs: number; referenceId: string; description: string }) {
     const client = this.getClient();
     return (client as any).paymentLink.create({
       amount: Math.round(params.amountRs * 100),
       currency: 'INR',
-      reference_id: params.orderId,
-      description: `Order ${params.orderNumber}`,
+      reference_id: params.referenceId,
+      description: params.description,
       notify: { sms: false, email: false }, // the QR code is the delivery mechanism, not Razorpay's own notify
     });
   }

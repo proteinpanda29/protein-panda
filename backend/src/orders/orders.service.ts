@@ -6,6 +6,7 @@ import { PointsService } from '../points/points.service';
 import { StreaksService } from '../streaks/streaks.service';
 import { AttendanceService } from '../streaks/attendance.service';
 import { BusinessRulesService } from '../common/business-rules.service';
+import { InvoiceService } from '../billing/invoice.service';
 import { OrdersGateway } from '../common/orders.gateway';
 import { AchievementsService } from '../achievements/achievements.service';
 import { ShopService } from '../shop/shop.service';
@@ -42,6 +43,11 @@ interface CreateOrderInput {
   // (a self-service online order has no staff member present to apply
   // one) — the controller enforces that, not this service.
   manualDiscountRs?: number;
+  // A game challenge's ₹49 entry fee, added to this same bill rather
+  // than collected as a separate counter transaction. POS-only, same
+  // as manualDiscountRs — an online self-service checkout has no
+  // in-progress challenge to bill against.
+  extraChargeRs?: number;
   paymentMethod: PaymentMethod;
   // POS/counter sales only: payment is collected in person, so the
   // Payment record is created already PAID (not PENDING), and purchase
@@ -95,6 +101,7 @@ export class OrdersService {
     private notificationCenter: NotificationCenterService,
     private wallet: WalletService,
     private businessRules: BusinessRulesService,
+    private invoices: InvoiceService,
   ) {}
 
   async create(input: CreateOrderInput) {
@@ -329,7 +336,9 @@ export class OrdersService {
       // from totalRs itself; see the deliveryFeeRs schema comment for
       // why loyalty points and coupon minimums must stay based on
       // totalRs alone.
-      const grandTotalRs = totalRs + deliveryFeeRs;
+      const challengeFeeRs = input.extraChargeRs ?? 0;
+      if (challengeFeeRs < 0) throw new BadRequestException('Challenge fee cannot be negative');
+      const grandTotalRs = totalRs + deliveryFeeRs + challengeFeeRs;
 
       // 3. Create the order + its payment record (PENDING until confirmed —
       // for CASH that means "collected at counter/delivery", for online
@@ -357,6 +366,7 @@ export class OrdersService {
           discountRs,
           totalRs,
           deliveryFeeRs,
+          challengeFeeRs,
           totalProteinG,
           totalCalories,
           couponId,
@@ -496,6 +506,13 @@ export class OrdersService {
       // needed before this is fully live). WHATSAPP_TEMPLATE_ORDER_CONFIRMED
       // is separately configurable so it's not hardcoded to a template
       // name that may not match whatever gets approved.
+      //
+      // Widened to 2 variables (order number, total) — genuinely more
+      // useful than the order number alone, but this means whatever
+      // template gets approved on Meta/MSG91's side must have exactly
+      // 2 {{1}} {{2}} placeholders in that order; a template approved
+      // with only 1 placeholder will reject this call until it's
+      // re-approved with the extra one.
       if (process.env.WHATSAPP_AUTH_KEY && process.env.WHATSAPP_TEMPLATE_ORDER_CONFIRMED) {
         this.prisma.customer
           .findUnique({ where: { id: input.customerId }, include: { user: true } })
@@ -503,7 +520,32 @@ export class OrdersService {
             const phone = customer?.user?.phone;
             if (!phone) return;
             this.notificationQueue
-              .queueWhatsAppNotification(phone, process.env.WHATSAPP_TEMPLATE_ORDER_CONFIRMED!, [order.orderNumber])
+              .queueWhatsAppNotification(phone, process.env.WHATSAPP_TEMPLATE_ORDER_CONFIRMED!, [
+                order.orderNumber,
+                `Rs ${order.totalRs}`,
+              ])
+              .catch(() => undefined);
+          })
+          .catch(() => undefined);
+      }
+
+      // WhatsApp invoice share — a real, working link to the actual PDF,
+      // not just an order number. Requires its own approved template
+      // (WHATSAPP_TEMPLATE_INVOICE_SHARED) since a template's variable
+      // slots and wording are fixed at Meta/MSG91 approval time and
+      // can't be assumed to match order_confirmed's; kept as a fully
+      // separate, optional notification so a shop that only wants order
+      // confirmations (not this) can leave the invoice template unset.
+      if (process.env.WHATSAPP_AUTH_KEY && process.env.WHATSAPP_TEMPLATE_INVOICE_SHARED && process.env.APP_PUBLIC_URL) {
+        this.prisma.customer
+          .findUnique({ where: { id: input.customerId }, include: { user: true } })
+          .then((customer: { user: { phone: string | null } } | null) => {
+            const phone = customer?.user?.phone;
+            if (!phone) return;
+            const token = this.invoices.generateInvoiceAccessToken(order.id);
+            const invoiceUrl = `${process.env.APP_PUBLIC_URL}/orders/${order.id}/invoice-public?token=${token}`;
+            this.notificationQueue
+              .queueWhatsAppNotification(phone, process.env.WHATSAPP_TEMPLATE_INVOICE_SHARED!, [order.orderNumber, invoiceUrl])
               .catch(() => undefined);
           })
           .catch(() => undefined);

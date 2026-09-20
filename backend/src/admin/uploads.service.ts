@@ -36,7 +36,7 @@ export class UploadsService {
     this.configured = true;
   }
 
-  getUploadSignature(folder: 'protein-panda/products' | 'protein-panda/reviews' = 'protein-panda/products') {
+  getUploadSignature(folder: 'protein-panda/products' | 'protein-panda/reviews' | 'protein-panda/supplements' | 'protein-panda/games' = 'protein-panda/products') {
     this.ensureConfigured();
     const timestamp = Math.round(Date.now() / 1000);
     // folder groups uploads together in the Cloudinary dashboard, and

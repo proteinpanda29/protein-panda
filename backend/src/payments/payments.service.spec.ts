@@ -5,6 +5,8 @@ function makeHarness() {
   const prisma: any = {
     order: { findUniqueOrThrow: jest.fn() },
     payment: { update: jest.fn(), findFirst: jest.fn() },
+    customer: { findUnique: jest.fn() },
+    deliveryOrder: { findUnique: jest.fn(), update: jest.fn() },
   };
   // Reuse the same prisma object as the transaction client so assertions
   // against prisma.payment.update also see calls made inside $transaction
@@ -19,7 +21,7 @@ function makeHarness() {
   const orders = { grantOrderRewards: jest.fn().mockResolvedValue(undefined) } as any;
   const gateway = { emitOrderStatusUpdate: jest.fn() } as any;
   const invoices = { sendInvoiceEmail: jest.fn().mockResolvedValue(undefined) } as any;
-  const notificationQueue = { queueInvoiceEmail: jest.fn().mockResolvedValue(undefined) } as any;
+  const notificationQueue = { queueInvoiceEmail: jest.fn().mockResolvedValue(undefined), queueWhatsAppNotification: jest.fn().mockResolvedValue(undefined) } as any;
 
   const service = new PaymentsService(prisma, razorpay, orders, gateway, notificationQueue);
   return { service, prisma, razorpay, orders, gateway, invoices, notificationQueue };
@@ -106,7 +108,7 @@ describe('PaymentsService.createPaymentLinkForOrder', () => {
 
     const result = await service.createPaymentLinkForOrder('order-1');
 
-    expect(razorpay.createPaymentLink).toHaveBeenCalledWith({ amountRs: 149, orderId: 'order-1', orderNumber: 'PP1234' });
+    expect(razorpay.createPaymentLink).toHaveBeenCalledWith({ amountRs: 149, referenceId: 'order-1', description: 'Order PP1234' });
     expect(prisma.payment.update).toHaveBeenCalledWith({
       where: { id: 'pay-1' },
       data: { transactionRef: 'plink_1' },
@@ -248,5 +250,157 @@ describe('PaymentsService.confirmPaymentFromWebhook', () => {
       data: { status: 'PAID', paidAt: expect.any(Date), transactionRef: 'pay_rzp_1' },
     });
     expect(notificationQueue.queueInvoiceEmail).toHaveBeenCalledWith('order-1');
+  });
+
+  it('sends a WhatsApp payment-confirmation template when configured and the customer has a phone', async () => {
+    process.env.WHATSAPP_AUTH_KEY = 'test-key';
+    process.env.WHATSAPP_TEMPLATE_PAYMENT_CONFIRMED = 'payment_confirmed';
+
+    const { service, prisma, notificationQueue } = makeHarness();
+    prisma.payment.findFirst.mockResolvedValue({
+      id: 'pay-1',
+      status: 'PENDING',
+      order: { id: 'order-1', orderNumber: 'PP1234', customerId: 'cust-1', status: 'RECEIVED', totalProteinG: 30, totalRs: 149 },
+    });
+    prisma.customer.findUnique.mockResolvedValue({ user: { phone: '+919876543210' } });
+
+    await service.confirmPaymentFromWebhook('order_rzp_1', 'pay_rzp_1');
+    await new Promise((resolve) => setImmediate(resolve)); // let the un-awaited .then() chain settle
+
+    expect(notificationQueue.queueWhatsAppNotification).toHaveBeenCalledWith('+919876543210', 'payment_confirmed', ['PP1234', 'Rs 149']);
+
+    delete process.env.WHATSAPP_AUTH_KEY;
+    delete process.env.WHATSAPP_TEMPLATE_PAYMENT_CONFIRMED;
+  });
+
+  it('does not attempt a WhatsApp send when the template env var is not configured', async () => {
+    delete process.env.WHATSAPP_AUTH_KEY;
+    delete process.env.WHATSAPP_TEMPLATE_PAYMENT_CONFIRMED;
+
+    const { service, prisma, notificationQueue } = makeHarness();
+    prisma.payment.findFirst.mockResolvedValue({
+      id: 'pay-1',
+      status: 'PENDING',
+      order: { id: 'order-1', orderNumber: 'PP1234', customerId: 'cust-1', status: 'RECEIVED', totalProteinG: 30, totalRs: 149 },
+    });
+
+    await service.confirmPaymentFromWebhook('order_rzp_1', 'pay_rzp_1');
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(notificationQueue.queueWhatsAppNotification).not.toHaveBeenCalled();
+    expect(prisma.customer.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('skips the WhatsApp send gracefully when the customer has no phone on file, without throwing', async () => {
+    process.env.WHATSAPP_AUTH_KEY = 'test-key';
+    process.env.WHATSAPP_TEMPLATE_PAYMENT_CONFIRMED = 'payment_confirmed';
+
+    const { service, prisma, notificationQueue } = makeHarness();
+    prisma.payment.findFirst.mockResolvedValue({
+      id: 'pay-1',
+      status: 'PENDING',
+      order: { id: 'order-1', orderNumber: 'PP1234', customerId: 'cust-1', status: 'RECEIVED', totalProteinG: 30, totalRs: 149 },
+    });
+    prisma.customer.findUnique.mockResolvedValue({ user: { phone: null } });
+
+    await expect(service.confirmPaymentFromWebhook('order_rzp_1', 'pay_rzp_1')).resolves.toBeDefined();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(notificationQueue.queueWhatsAppNotification).not.toHaveBeenCalled();
+
+    delete process.env.WHATSAPP_AUTH_KEY;
+    delete process.env.WHATSAPP_TEMPLATE_PAYMENT_CONFIRMED;
+  });
+});
+
+describe('PaymentsService.createTipPaymentLink', () => {
+  it('creates a real Razorpay Payment Link encoding the delivery order id and amount in its reference_id', async () => {
+    const { service, prisma, razorpay } = makeHarness();
+    prisma.order.findUniqueOrThrow.mockResolvedValue({
+      id: 'order-1',
+      orderNumber: 'PP1234',
+      customerId: 'cust-1',
+      status: 'DELIVERED',
+      deliveryOrder: { id: 'delivery-1', tipAmountRs: 0 },
+    });
+    razorpay.createPaymentLink.mockResolvedValue({ id: 'plink_tip_1', short_url: 'https://rzp.io/i/tip123' });
+
+    const result = await service.createTipPaymentLink('cust-1', 'order-1', 30);
+
+    expect(razorpay.createPaymentLink).toHaveBeenCalledWith({
+      amountRs: 30,
+      referenceId: 'tip:delivery-1:30',
+      description: 'Tip for order PP1234',
+    });
+    expect(result).toEqual({ paymentLinkId: 'plink_tip_1', shortUrl: 'https://rzp.io/i/tip123' });
+  });
+
+  it('rejects a tip amount that is not positive', async () => {
+    const { service } = makeHarness();
+    await expect(service.createTipPaymentLink('cust-1', 'order-1', 0)).rejects.toThrow(/must be positive/i);
+  });
+
+  it('refuses to create a tip link for someone else\'s order', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.order.findUniqueOrThrow.mockResolvedValue({
+      id: 'order-1',
+      customerId: 'someone-else',
+      status: 'DELIVERED',
+      deliveryOrder: { id: 'delivery-1', tipAmountRs: 0 },
+    });
+
+    await expect(service.createTipPaymentLink('cust-1', 'order-1', 30)).rejects.toThrow(/does not belong to you/i);
+  });
+
+  it('refuses to create a tip link before the order has actually been delivered', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.order.findUniqueOrThrow.mockResolvedValue({
+      id: 'order-1',
+      customerId: 'cust-1',
+      status: 'OUT_FOR_DELIVERY',
+      deliveryOrder: { id: 'delivery-1', tipAmountRs: 0 },
+    });
+
+    await expect(service.createTipPaymentLink('cust-1', 'order-1', 30)).rejects.toThrow(/after your order has been delivered/i);
+  });
+
+  it('refuses to create a second tip link once a tip has already been applied', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.order.findUniqueOrThrow.mockResolvedValue({
+      id: 'order-1',
+      customerId: 'cust-1',
+      status: 'DELIVERED',
+      deliveryOrder: { id: 'delivery-1', tipAmountRs: 20 },
+    });
+
+    await expect(service.createTipPaymentLink('cust-1', 'order-1', 30)).rejects.toThrow(/already tipped/i);
+  });
+});
+
+describe('PaymentsService.confirmTipPayment', () => {
+  it('applies the tip amount to the correct delivery order', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.deliveryOrder.findUnique.mockResolvedValue({ id: 'delivery-1', tipAmountRs: 0 });
+
+    await service.confirmTipPayment('delivery-1', 30);
+
+    expect(prisma.deliveryOrder.update).toHaveBeenCalledWith({ where: { id: 'delivery-1' }, data: { tipAmountRs: 30 } });
+  });
+
+  it('is idempotent — does not double-apply a tip on a duplicate webhook delivery', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.deliveryOrder.findUnique.mockResolvedValue({ id: 'delivery-1', tipAmountRs: 30 });
+
+    await service.confirmTipPayment('delivery-1', 30);
+
+    expect(prisma.deliveryOrder.update).not.toHaveBeenCalled();
+  });
+
+  it('does nothing and does not throw when the delivery order no longer exists', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.deliveryOrder.findUnique.mockResolvedValue(null);
+
+    await expect(service.confirmTipPayment('ghost-delivery', 30)).resolves.toBeUndefined();
+    expect(prisma.deliveryOrder.update).not.toHaveBeenCalled();
   });
 });

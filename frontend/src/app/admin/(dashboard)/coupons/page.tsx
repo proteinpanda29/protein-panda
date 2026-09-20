@@ -56,6 +56,16 @@ export default function AdminCouponsPage() {
     }
   };
 
+  const deleteCoupon = async (c: Coupon) => {
+    if (!confirm(`Delete coupon "${c.code}"? This cannot be undone.`)) return;
+    try {
+      await api.adminDeleteCoupon(c.id);
+      load();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -235,6 +245,12 @@ export default function AdminCouponsPage() {
               }`}
             >
               {c.isActive ? 'Disable' : 'Enable'}
+            </button>
+            <button
+              onClick={() => deleteCoupon(c)}
+              className="rounded-full border-2 border-red-600 px-4 py-2 text-xs font-bold uppercase tracking-wide text-red-600 hover:bg-red-600 hover:text-white"
+            >
+              Delete
             </button>
           </div>
         ))}
