@@ -22,7 +22,7 @@ export class EmailService {
   isConfigured(): boolean {
     return !!(
       process.env.RESEND_API_KEY &&
-      process.env.RESEND_FROM_EMAIL
+      (process.env.RESEND_FROM_EMAIL || process.env.SMTP_FROM_EMAIL)
     );
   }
 
@@ -44,12 +44,12 @@ export class EmailService {
     fromName?: string;
   }): Promise<boolean> {
     const apiKey = process.env.RESEND_API_KEY;
-    const fromEmail = process.env.RESEND_FROM_EMAIL;
+    const fromEmail = process.env.RESEND_FROM_EMAIL || process.env.SMTP_FROM_EMAIL;
 
     if (!apiKey || !fromEmail) {
       this.logger.error(
         'Resend email provider is not configured. ' +
-          'Required variables: RESEND_API_KEY and RESEND_FROM_EMAIL.',
+          'Required variables: RESEND_API_KEY and (RESEND_FROM_EMAIL or SMTP_FROM_EMAIL).',
       );
 
       return false;
