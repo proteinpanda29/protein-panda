@@ -183,7 +183,7 @@ export class RefundsService {
     // pattern as payment confirmation: never hold a DB transaction open
     // across an external network call.
     try {
-      const result = await this.razorpay.refundPayment(order.payment.transactionRef!, params.amountRs);
+            const result = await this.razorpay.refundPayment(order.payment.razorpayPaymentId!, params.amountRs);
       return this.completeRefund(refund.id, result.id);
     } catch (err) {
       this.logger.error(`Razorpay refund failed for order ${orderId}: ${(err as Error).message}`);
