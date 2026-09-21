@@ -94,6 +94,7 @@ export class PosService {
       couponCode?: string;
       redemptionId?: string;
       manualDiscountRs?: number;
+      manualDiscountReason?: string;
       idempotencyKey?: string;
       // A VERIFIED challenge attempt being billed as part of this same
       // sale — its entry fee is added to the total, and any discount
@@ -145,6 +146,7 @@ export class PosService {
       couponCode: input.couponCode,
       redemptionId: input.redemptionId,
       manualDiscountRs: combinedManualDiscountRs,
+      manualDiscountReason: input.manualDiscountReason,
       extraChargeRs,
       markPaidImmediately: !isUpi,
       processedByUserId: adminUserId,
