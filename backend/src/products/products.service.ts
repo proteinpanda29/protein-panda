@@ -6,21 +6,21 @@ export class ProductsService {
   constructor(private prisma: PrismaService) {}
 
   // Paginated — never load the full catalog in one go.
-  async list(params: { categorySlug?: string; take?: number; cursor?: string }) {
+   async list(params: { categorySlug?: string; take?: number; cursor?: string }) {
     const { categorySlug, take = 20, cursor } = params;
+    const boundedTake = Math.min(Math.max(take, 1), 500);
 
     return this.prisma.product.findMany({
       where: {
         isActive: true,
         ...(categorySlug ? { category: { slug: categorySlug } } : {}),
       },
-      take,
+      take: boundedTake,
       ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
       orderBy: { name: 'asc' },
       include: { nutrition: true, category: true, addonOptions: true, allergens: { include: { allergen: true } } },
     });
   }
-
   async getBySlug(slug: string) {
     // Found via a real HTTP integration test (not a unit test — those
     // never touch what the controller actually returns to a client):
