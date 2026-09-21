@@ -579,6 +579,7 @@ model Order {
   status          OrderStatus     @default(RECEIVED)
   subtotalRs      Decimal         @db.Decimal(10, 2)
   discountRs      Decimal         @db.Decimal(10, 2) @default(0)
+  discountReason  String?
   totalRs         Decimal         @db.Decimal(10, 2)
   // Distance-based delivery zone fee, added on TOP of totalRs for what
   // the customer actually pays — deliberately NOT folded into totalRs
