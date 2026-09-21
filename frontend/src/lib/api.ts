@@ -84,7 +84,7 @@ export const api = {
     request('/customers/me/contact-change/request', { method: 'POST', body: JSON.stringify({ newIdentifier }) }),
   confirmContactChange: (newIdentifier: string, code: string) =>
     request('/customers/me/contact-change/confirm', { method: 'POST', body: JSON.stringify({ newIdentifier, code }) }),
-  listProducts: (category?: string) => request(`/products${category ? `?category=${category}` : ''}`),
+   listProducts: (category?: string) => request(`/products?take=500${category ? `&category=${category}` : ''}`),
   listSupplementBrands: () => request('/supplements'),
   adminListSupplements: () => request('/admin/supplements'),
   adminSupplementUploadSignature: () => request('/admin/supplements/upload-signature'),
