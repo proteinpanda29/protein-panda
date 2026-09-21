@@ -49,7 +49,7 @@ export class OtpDispatchService {
    * works for one kind of email works for all of them.
    */
   private async sendEmail(email: string, code: string) {
-    if (!this.email.isConfigured()) throw new Error('No email provider configured (SMTP_HOST/SMTP_USER/SMTP_PASS or GMAIL_USER/GMAIL_APP_PASSWORD)');
+    if (!this.email.isConfigured()) throw new Error('No email provider configured (RESEND_API_KEY, ZEPTOMAIL, SMTP, or GMAIL)');
 
     const shopSettings = await this.prisma.shopSettings.findUnique({ where: { id: 'default' } });
     const businessName = shopSettings?.businessName ?? 'Protein Panda';
