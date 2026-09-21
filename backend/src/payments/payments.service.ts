@@ -182,9 +182,9 @@ export class PaymentsService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.payment.update({
+          await tx.payment.update({
         where: { id: payment.id },
-        data: { status: 'PAID', paidAt: new Date(), transactionRef: razorpayPaymentId },
+        data: { status: 'PAID', paidAt: new Date(), razorpayPaymentId },
       });
 
       // Only now — with a verified, confirmed payment — grant the
