@@ -4,7 +4,7 @@ export interface ReceiptData {
   customerName: string;
   fulfillmentType?: string;
   totalRs: string | number;
-  items: { quantity: number; name: string }[];
+  items: { quantity: number; name: string; unitPriceRs?: number }[];
 }
 
 /**
@@ -22,8 +22,14 @@ export function printReceipt(data: ReceiptData) {
     return;
   }
 
-  const itemsHtml = data.items
-    .map((item) => `<div class="item-line"><span>${item.quantity} x ${escapeHtml(item.name)}</span></div>`)
+    const itemsHtml = data.items
+    .map((item) => {
+      const priceHtml =
+        item.unitPriceRs !== undefined
+          ? `<span>₹${(item.unitPriceRs * item.quantity).toFixed(0)}</span>`
+          : '';
+      return `<div class="item-line" style="display:flex;justify-content:space-between;"><span>${item.quantity} x ${escapeHtml(item.name)}</span>${priceHtml}</div>`;
+    })
     .join('');
 
   printWindow.document.write(`
