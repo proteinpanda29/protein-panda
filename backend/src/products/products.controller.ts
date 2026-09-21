@@ -25,8 +25,8 @@ export class ProductsController {
   }
 
   @Get()
-  list(@Query('category') category?: string, @Query('cursor') cursor?: string) {
-    return this.products.list({ categorySlug: category, cursor });
+  list(@Query('category') category?: string, @Query('cursor') cursor?: string, @Query('take') take?: string) {
+    return this.products.list({ categorySlug: category, cursor, take: take ? Number(take) : undefined });
   }
 
   @Get(':slug')
