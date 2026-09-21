@@ -43,6 +43,7 @@ interface CreateOrderInput {
   // (a self-service online order has no staff member present to apply
   // one) — the controller enforces that, not this service.
   manualDiscountRs?: number;
+  manualDiscountReason?: string;
   // A game challenge's ₹49 entry fee, added to this same bill rather
   // than collected as a separate counter transaction. POS-only, same
   // as manualDiscountRs — an online self-service checkout has no
@@ -364,6 +365,7 @@ export class OrdersService {
           fulfillmentType: input.fulfillmentType,
           subtotalRs,
           discountRs,
+          discountReason: input.manualDiscountRs ? input.manualDiscountReason : undefined,
           totalRs,
           deliveryFeeRs,
           challengeFeeRs,
