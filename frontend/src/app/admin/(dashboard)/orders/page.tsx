@@ -11,7 +11,7 @@ function printReceiptViaBluetooth(order: {
   customer: { name: string };
   fulfillmentType: string;
   totalRs: string;
-  items: { quantity: number; product: { name: string } }[];
+  items: { quantity: number; unitPriceRs: string; product: { name: string } }[];
 }) {
   printReceipt({
     orderNumber: order.orderNumber,
@@ -19,7 +19,7 @@ function printReceiptViaBluetooth(order: {
     customerName: order.customer.name,
     fulfillmentType: order.fulfillmentType,
     totalRs: order.totalRs,
-    items: order.items.map((i) => ({ quantity: i.quantity, name: i.product.name })),
+    items: order.items.map((i) => ({ quantity: i.quantity, name: i.product.name, unitPriceRs: Number(i.unitPriceRs) })),
   });
 }
 
@@ -47,7 +47,7 @@ interface OrderRow {
   fulfillmentType: string;
   createdAt: string;
   customer: { name: string };
-  items: { quantity: number; product: { name: string } }[];
+  items: { quantity: number; unitPriceRs: string; product: { name: string } }[];
   payment: { method: string; status: string; amountRs: string } | null;
   deliveryOrder: { id: string; address: string | null; deliveryPersonId: string | null; deliveryPerson: { name: string } | null } | null;
 }
