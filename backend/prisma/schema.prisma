@@ -663,6 +663,7 @@ model Payment {
   status        PaymentStatus @default(PENDING)
   amountRs      Decimal       @db.Decimal(10, 2)
   transactionRef String?
+  razorpayPaymentId String?
   paidAt        DateTime?
   createdAt     DateTime      @default(now())
 }
