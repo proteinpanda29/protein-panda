@@ -773,7 +773,10 @@ model BusinessRuleSettings {
   // customer's dashboard without deleting the underlying target/
   // tracking logic — visits still count in the background either way,
   // this only controls whether customers see the card itself.
-  showMonthlyChallengeToCustomers Boolean @default(true)
+    showMonthlyChallengeToCustomers Boolean @default(true)
+  takeawayFeeEnabled Boolean @default(true)
+  takeawayFeeRs Int @default(10)
+  lowBalanceThresholdRs Int @default(300)
   updatedAt                  DateTime @updatedAt
 }
 
