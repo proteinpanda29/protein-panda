@@ -69,9 +69,10 @@ function makeHarness(opts: { product?: any; customer?: any; activeGoal?: any } =
   } as any;
   const shop = { isOpen: jest.fn().mockResolvedValue(true), isPincodeServiceable: jest.fn().mockResolvedValue(true), quoteDeliveryFee: jest.fn().mockResolvedValue(null) } as any;
   const invoices = { sendInvoiceEmail: jest.fn().mockResolvedValue(undefined), generateInvoiceAccessToken: jest.fn().mockReturnValue('mock-token') } as any;
+  const email = { send: jest.fn().mockResolvedValue(true) } as any;
   const notificationQueue = { queueInvoiceEmail: jest.fn().mockResolvedValue(undefined) } as any;
   const notificationCenter = { notifyCustomer: jest.fn().mockResolvedValue(undefined) } as any;
-  const inventory = { deductForOrder: jest.fn().mockResolvedValue(undefined) } as any;
+   const inventory = { deductForOrder: jest.fn().mockResolvedValue([]) } as any;
 
   const wallet = { debit: jest.fn().mockResolvedValue(undefined) } as any;
   const businessRules = {
@@ -80,9 +81,8 @@ function makeHarness(opts: { product?: any; customer?: any; activeGoal?: any } =
       Math.floor(purchaseRs / rules.loyaltyDivisorRs) * rules.loyaltyMultiplier,
     ),
   } as any;
-  const service = new OrdersService(prisma, points, streaks, attendance, gateway, achievements, shop, notificationQueue, inventory, notificationCenter, wallet, businessRules, invoices);
-  return { service, tx, prisma, points, streaks, attendance, gateway, shop, invoices, notificationQueue, notificationCenter, inventory, wallet, businessRules };
-}
+   const service = new OrdersService(prisma, points, streaks, attendance, gateway, achievements, shop, notificationQueue, inventory, notificationCenter, wallet, businessRules, invoices, email);
+  return { service, tx, prisma, points, streaks, attendance, gateway, shop, invoices, notificationQueue, notificationCenter, inventory, wallet, businessRules, email };
 
 describe('OrdersService.create', () => {
   const baseInput = {
