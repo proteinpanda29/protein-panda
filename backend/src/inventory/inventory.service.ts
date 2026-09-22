@@ -18,22 +18,6 @@ export class InventoryService {
    * inside the same transaction as order creation, so it's atomic with
    * the order itself.
    *
-   * Deliberately never blocks or throws on missing/insufficient stock —
-   * a small shop shouldn't have checkout fail because someone forgot to
-   * log a delivery of milk. Stock is allowed to go negative; the
-   * low-stock/out-of-stock signal comes from the admin inventory view
-   * separately, not from blocking sales.
-   *
-   * Add-ons are NOT deducted — ProductAddon isn't linked to Ingredient in
-   * the schema (addons carry their own price/nutrition deltas directly,
-   * not a recipe), so add-on ingredient usage isn't tracked yet.
-   */
-  /**
-   * Deducts stock for every ingredient in a product's recipe
-   * (ProductIngredient), scaled by how many units were ordered. Runs
-   * inside the same transaction as order creation, so it's atomic with
-   * the order itself.
-   *
    * Consumes FEFO (First Expiry, First Out): pulls from whichever batch
    * expires soonest first, only moving to the next batch once the
    * current one is exhausted. Batches with no recorded expiry are
@@ -50,8 +34,17 @@ export class InventoryService {
    * Add-ons are NOT deducted — ProductAddon isn't linked to Ingredient in
    * the schema (addons carry their own price/nutrition deltas directly,
    * not a recipe), so add-on ingredient usage isn't tracked yet.
+   *
+   * Returns the ingredients this specific deduction just pushed at or
+   * below their reorder threshold — deliberately only the ones that
+   * *just crossed* it (were above before, at-or-below after), not
+   * every already-low item, so a caller alerting on this doesn't send
+   * a fresh notification for the same low ingredient on every
+   * subsequent sale once it's already known to be low.
    */
   async deductForOrder(tx: Tx, items: OrderLineForDeduction[]) {
+    const newlyLow: { ingredientName: string; quantityOnHand: number; reorderLevel: number }[] = [];
+
     for (const item of items) {
       const recipeLines = await tx.productIngredient.findMany({
         where: { productId: item.productId },
@@ -115,8 +108,17 @@ export class InventoryService {
           where: { id: inventoryItem.id },
           data: { quantityOnHand: { decrement: totalDeductAmount } },
         });
+
+        const beforeQty = Number(inventoryItem.quantityOnHand);
+        const afterQty = beforeQty - totalDeductAmount;
+        const reorderLevel = Number(inventoryItem.reorderLevel);
+        if (beforeQty > reorderLevel && afterQty <= reorderLevel) {
+          newlyLow.push({ ingredientName: line.ingredient.name, quantityOnHand: afterQty, reorderLevel });
+        }
       }
     }
+
+    return newlyLow;
   }
 
   /**
