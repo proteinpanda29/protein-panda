@@ -69,6 +69,8 @@ export default function PosPage() {
   const [showWalkInForm, setShowWalkInForm] = useState(false);
 
   const [products, setProducts] = useState<Product[]>([]);
+  const [productSearch, setProductSearch] = useState('');
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [customizing, setCustomizing] = useState<Product | null>(null);
   const [cart, setCart] = useState<CartLine[]>([]);
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'UPI' | 'CARD'>('CASH');
@@ -166,9 +168,15 @@ export default function PosPage() {
   const updateQty = (key: string, qty: number) => {
     setCart((prev) => (qty <= 0 ? prev.filter((l) => l.key !== key) : prev.map((l) => (l.key === key ? { ...l, quantity: qty } : l))));
   };
-
   const total = cart.reduce((sum, l) => sum + l.unitPriceRs * l.quantity, 0);
 
+  const categoryNames = Array.from(new Set(products.map((p) => p.category?.name).filter((n): n is string => !!n))).sort();
+  const filteredProducts = products.filter((p) => {
+    const matchesCategory = !activeCategory || p.category?.name === activeCategory;
+    const matchesSearch = !productSearch.trim() || p.name.toLowerCase().includes(productSearch.trim().toLowerCase());
+    return matchesCategory && matchesSearch;
+  });
+  
   const completeSale = async () => {
     if (!customer || cart.length === 0) return;
     setBusy(true);
@@ -399,10 +407,42 @@ export default function PosPage() {
           </div>
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            <div className="lg:col-span-2">
+                       <div className="lg:col-span-2">
               <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-brand-black">Menu</h2>
+
+              <input
+                value={productSearch}
+                onChange={(e) => setProductSearch(e.target.value)}
+                placeholder="Search items…"
+                className="mb-3 w-full rounded-lg border border-brand-grey px-3 py-2 text-sm"
+              />
+
+              {categoryNames.length > 1 && (
+                <div className="mb-3 flex flex-wrap gap-2">
+                  <button
+                    onClick={() => setActiveCategory(null)}
+                    className={`rounded-full border-2 px-3 py-1 text-xs font-bold uppercase ${
+                      !activeCategory ? 'border-brand-primary bg-brand-primary text-brand-white' : 'border-brand-grey text-brand-black'
+                    }`}
+                  >
+                    All
+                  </button>
+                  {categoryNames.map((name) => (
+                    <button
+                      key={name}
+                      onClick={() => setActiveCategory(name)}
+                      className={`rounded-full border-2 px-3 py-1 text-xs font-bold uppercase ${
+                        activeCategory === name ? 'border-brand-primary bg-brand-primary text-brand-white' : 'border-brand-grey text-brand-black'
+                      }`}
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                {products.map((p) => (
+                {filteredProducts.map((p) => (
                   <button
                     key={p.id}
                     onClick={() => (p.isCustomisable ? setCustomizing(p) : addSimple(p))}
@@ -412,6 +452,7 @@ export default function PosPage() {
                     <p className="text-xs text-brand-body">₹{p.basePriceRs}{p.isCustomisable ? ' · Customise' : ''}</p>
                   </button>
                 ))}
+                {filteredProducts.length === 0 && <p className="col-span-full text-sm text-brand-body">No items match.</p>}
               </div>
             </div>
 
