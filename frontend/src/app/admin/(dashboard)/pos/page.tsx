@@ -43,8 +43,8 @@ interface Product {
   basePriceRs: string;
   isCustomisable: boolean;
   addonOptions: Addon[];
+  category?: { name: string };
 }
-
 interface CartLine {
   key: string;
   productId: string;
