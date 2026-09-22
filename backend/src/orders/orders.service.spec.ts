@@ -83,7 +83,7 @@ function makeHarness(opts: { product?: any; customer?: any; activeGoal?: any } =
   } as any;
    const service = new OrdersService(prisma, points, streaks, attendance, gateway, achievements, shop, notificationQueue, inventory, notificationCenter, wallet, businessRules, invoices, email);
   return { service, tx, prisma, points, streaks, attendance, gateway, shop, invoices, notificationQueue, notificationCenter, inventory, wallet, businessRules, email };
-
+}
 describe('OrdersService.create', () => {
   const baseInput = {
     customerId: 'cust-1',
