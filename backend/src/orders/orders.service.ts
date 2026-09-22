@@ -7,6 +7,7 @@ import { StreaksService } from '../streaks/streaks.service';
 import { AttendanceService } from '../streaks/attendance.service';
 import { BusinessRulesService } from '../common/business-rules.service';
 import { InvoiceService } from '../billing/invoice.service';
+import { EmailService } from '../notifications/email.service';
 import { OrdersGateway } from '../common/orders.gateway';
 import { AchievementsService } from '../achievements/achievements.service';
 import { ShopService } from '../shop/shop.service';
@@ -103,6 +104,7 @@ export class OrdersService {
     private wallet: WalletService,
     private businessRules: BusinessRulesService,
     private invoices: InvoiceService,
+    private email: EmailService,
   ) {}
 
   async create(input: CreateOrderInput) {
@@ -460,7 +462,7 @@ export class OrdersService {
       // Runs for every channel (website, membership, POS) since stock
       // leaves the shelf the moment the order is placed/prepared,
       // regardless of payment method or timing.
-      await this.inventory.deductForOrder(
+         const lowStockAlerts = await this.inventory.deductForOrder(
         tx,
         input.items.map((i) => ({ productId: i.productId, quantity: i.quantity })),
       );
@@ -483,8 +485,8 @@ export class OrdersService {
         await this.grantOrderRewards(tx, order.id, input.customerId, totalProteinG, totalRs);
       }
 
-      return order;
-    }).then((order) => {
+    return { order, lowStockAlerts };
+    }).then(({ order, lowStockAlerts }) => {
       // Emit outside the transaction so the socket broadcast never blocks
       // or gets rolled back by unrelated DB concerns.
       this.gateway.emitOrderStatusUpdate({
@@ -559,9 +561,24 @@ export class OrdersService {
       // existed since earlier in this build. Fire-and-forget, same
       // reasoning as everywhere else here: a failure to notify must
       // never affect the order that already succeeded.
-      this.notificationCenter
+           this.notificationCenter
         .notifyCustomer(input.customerId, 'ORDER_UPDATE', 'Order Confirmed', `Your order #${order.orderNumber} has been confirmed.`)
         .catch(() => undefined);
+
+      if (lowStockAlerts.length > 0 && process.env.LOW_STOCK_ALERT_EMAIL) {
+        const itemLines = lowStockAlerts
+          .map((a: { ingredientName: string; quantityOnHand: number; reorderLevel: number }) =>
+            `<li>${a.ingredientName}: ${a.quantityOnHand} remaining (reorder level: ${a.reorderLevel})</li>`,
+          )
+          .join('');
+        this.email
+          .send({
+            to: process.env.LOW_STOCK_ALERT_EMAIL,
+            subject: `⚠️ Low stock alert — ${lowStockAlerts.length} item${lowStockAlerts.length > 1 ? 's' : ''}`,
+            html: `<p>The following ingredient${lowStockAlerts.length > 1 ? 's have' : ' has'} just dropped to or below its reorder level:</p><ul>${itemLines}</ul>`,
+          })
+          .catch(() => undefined);
+      }
 
       return order;
     });
