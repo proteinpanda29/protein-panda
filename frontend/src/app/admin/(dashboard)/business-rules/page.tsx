@@ -9,6 +9,8 @@ export default function BusinessRulesPage() {
   const [monthlyVisitTarget, setMonthlyVisitTarget] = useState('15');
   const [requiredChallengesPerMonth, setRequiredChallengesPerMonth] = useState('1');
   const [showMonthlyChallengeToCustomers, setShowMonthlyChallengeToCustomers] = useState(true);
+  const [takeawayFeeEnabled, setTakeawayFeeEnabled] = useState(true);
+  const [takeawayFeeRs, setTakeawayFeeRs] = useState('10');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,6 +25,8 @@ export default function BusinessRulesPage() {
         setMonthlyVisitTarget(String(r.monthlyVisitTarget));
         setRequiredChallengesPerMonth(String(r.requiredChallengesPerMonth));
         setShowMonthlyChallengeToCustomers(r.showMonthlyChallengeToCustomers ?? true);
+        setTakeawayFeeEnabled(r.takeawayFeeEnabled ?? true);
+        setTakeawayFeeRs(String(r.takeawayFeeRs ?? 10));
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false));
@@ -43,6 +47,8 @@ export default function BusinessRulesPage() {
         monthlyVisitTarget: Number(monthlyVisitTarget),
         requiredChallengesPerMonth: Number(requiredChallengesPerMonth),
         showMonthlyChallengeToCustomers,
+        takeawayFeeEnabled,
+        takeawayFeeRs: Number(takeawayFeeRs),
       });
       setSaved(true);
     } catch (err: any) {
@@ -122,6 +128,24 @@ export default function BusinessRulesPage() {
             className="h-5 w-5 accent-brand-primary"
           />
         </label>
+
+        <label className="mb-2 flex items-center justify-between rounded-lg bg-brand-bg px-3 py-2.5 text-sm font-semibold text-brand-black">
+          Charge a takeaway/parcel fee
+          <input
+            type="checkbox"
+            checked={takeawayFeeEnabled}
+            onChange={(e) => setTakeawayFeeEnabled(e.target.checked)}
+            className="h-5 w-5 accent-brand-primary"
+          />
+        </label>
+        <input
+          type="number"
+          value={takeawayFeeRs}
+          onChange={(e) => setTakeawayFeeRs(e.target.value)}
+          disabled={!takeawayFeeEnabled}
+          placeholder="Takeaway fee ₹"
+          className="mb-6 w-full rounded-lg border border-brand-grey px-3 py-2 text-sm disabled:opacity-50"
+        />
 
         {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
         {saved && <p className="mb-3 text-sm text-brand-primary">Saved — takes effect immediately.</p>}
