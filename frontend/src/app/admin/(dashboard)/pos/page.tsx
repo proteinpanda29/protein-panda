@@ -74,6 +74,7 @@ export default function PosPage() {
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'UPI' | 'CARD'>('CASH');
   const [couponCode, setCouponCode] = useState('');
   const [manualDiscount, setManualDiscount] = useState('');
+  const [manualDiscountReason, setManualDiscountReason] = useState('');
   const [fulfillmentType, setFulfillmentType] = useState<'PICKUP' | 'DINE_IN'>('PICKUP');
   const [availableRedemptions, setAvailableRedemptions] = useState<Redemption[]>([]);
   const [selectedRedemptionId, setSelectedRedemptionId] = useState('');
@@ -179,6 +180,7 @@ export default function PosPage() {
       items: cart.map((l) => ({ productId: l.productId, quantity: l.quantity, addonIds: l.addonIds })),
       couponCode: couponCode.trim() || undefined,
       manualDiscountRs: manualDiscount.trim() ? Number(manualDiscount) : undefined,
+      manualDiscountReason: manualDiscount.trim() ? manualDiscountReason.trim() || undefined : undefined,
       fulfillmentType,
       redemptionId: selectedRedemptionId || undefined,
       gameAttemptId: selectedChallengeId || undefined,
@@ -208,7 +210,7 @@ export default function PosPage() {
         customerName: customer.name,
         fulfillmentType,
         totalRs: total,
-        items: cart.map((l) => ({ quantity: l.quantity, name: l.name })),
+        items: cart.map((l) => ({ quantity: l.quantity, name: l.name, unitPriceRs: l.unitPriceRs })),
       };
       if (order.paymentLink) {
         // UPI — the sale isn't actually paid yet. Show the QR code and
@@ -223,6 +225,7 @@ export default function PosPage() {
       setCustomer(null);
       setCouponCode('');
       setManualDiscount('');
+      setManualDiscountReason('');
       setSelectedChallengeId('');
       setQuery('');
     } catch (err: any) {
@@ -467,13 +470,21 @@ export default function PosPage() {
                 className="mb-3 w-full rounded-lg border border-brand-grey px-3 py-2 text-sm uppercase"
               />
 
-              <input
-                value={manualDiscount}
-                onChange={(e) => setManualDiscount(e.target.value.replace(/[^\d.]/g, ''))}
-                placeholder="Manual discount ₹ (optional)"
-                inputMode="decimal"
-                className="mb-3 w-full rounded-lg border border-brand-grey px-3 py-2 text-sm"
-              />
+                <div className="mb-3 grid grid-cols-2 gap-2">
+                <input
+                  value={manualDiscountReason}
+                  onChange={(e) => setManualDiscountReason(e.target.value)}
+                  placeholder="Discount reason (e.g. Game Reward)"
+                  className="rounded-lg border border-brand-grey px-3 py-2 text-sm"
+                />
+                <input
+                  value={manualDiscount}
+                  onChange={(e) => setManualDiscount(e.target.value.replace(/[^\d.]/g, ''))}
+                  placeholder="Discount ₹"
+                  inputMode="decimal"
+                  className="rounded-lg border border-brand-grey px-3 py-2 text-sm"
+                />
+              </div>
 
               {availableRedemptions.length > 0 && (
                 <select
