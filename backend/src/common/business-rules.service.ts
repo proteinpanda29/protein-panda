@@ -9,6 +9,9 @@ export interface BusinessRules {
   monthlyVisitTarget: number;
   requiredChallengesPerMonth: number;
   showMonthlyChallengeToCustomers: boolean;
+  takeawayFeeEnabled: boolean;
+  takeawayFeeRs: number;
+  lowBalanceThresholdRs: number;
 }
 
 @Injectable()
