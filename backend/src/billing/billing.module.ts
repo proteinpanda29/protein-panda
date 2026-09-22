@@ -9,6 +9,6 @@ import { PdfModule } from '../pdf/pdf.module';
   imports: [PdfModule],
   controllers: [BillingController, PublicInvoiceController],
   providers: [InvoiceService, PrismaService, EmailService],
-  exports: [InvoiceService],
+  exports: [InvoiceService, EmailService],
 })
 export class BillingModule {}
