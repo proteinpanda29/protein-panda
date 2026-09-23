@@ -5,15 +5,14 @@ interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
 }
-
-// gemini-pro-latest — an alias Google keeps pointed at their current
-// best Pro model (as of this writing, gemini-3-pro-preview), so this
-// never needs manual updating as new Gemini versions ship. Requires
-// billing enabled on the API key — the free AI Studio tier only covers
-// Flash/Flash-Lite models, not Pro. Check ai.google.dev/gemini-api/docs/pricing
-// for current rates before deploying.
-const MODEL = 'gemini-pro-latest';
-const MAX_HISTORY_MESSAGES = 20; // keep requests bounded; frontend can still keep full history locally
+// gemini-flash-latest — an alias Google keeps pointed at their current
+// best Flash model, so this never needs manual updating as new Gemini
+// versions ship. Unlike Pro (removed from the free tier in April
+// 2026 — now paid-only regardless of usage), Flash models remain
+// genuinely free with daily rate limits. Switched from
+// gemini-pro-latest after hitting a real 0-quota 429 in production —
+// Pro requires billing enabled on the API key, Flash does not.
+const MODEL = 'gemini-flash-latest';
 
 /**
  * Keyword-based pre-flight check on the customer's latest message —
