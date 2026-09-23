@@ -68,9 +68,9 @@ async function request(path: string, options: RequestInit = {}) {
 }
 
 export const api = {
-  requestOtp: (identifier: string) => request('/auth/otp/request', { method: 'POST', body: JSON.stringify({ identifier }) }),
-  verifyOtp: (identifier: string, code: string, name?: string, gymName?: string, referredByCode?: string) =>
-    request('/auth/otp/verify', { method: 'POST', body: JSON.stringify({ identifier, code, name, gymName, referredByCode }) }),
+   requestOtp: (identifier: string, portal?: string) => request('/auth/otp/request', { method: 'POST', body: JSON.stringify({ identifier, portal }) }),
+  verifyOtp: (identifier: string, code: string, name?: string, gymName?: string, referredByCode?: string, portal?: string) =>
+    request('/auth/otp/verify', { method: 'POST', body: JSON.stringify({ identifier, code, name, gymName, referredByCode, portal }) }),
   verifyGoogleToken: (idToken: string) => request('/auth/google', { method: 'POST', body: JSON.stringify({ idToken }) }),
   getDashboard: () => request('/customers/me/dashboard'),
   myNotifications: () => request('/notifications'),
