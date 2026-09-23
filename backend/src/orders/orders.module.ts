@@ -14,11 +14,12 @@ import { BillingModule } from '../billing/billing.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { NotificationCenterModule } from '../notification-center/notification-center.module';
 import { WalletService } from '../customers/wallet.service';
+import { RazorpayService } from '../payments/razorpay.service';
 
 @Module({
   imports: [RealtimeModule, AchievementsModule, ShopModule, BillingModule, InventoryModule, NotificationCenterModule],
   controllers: [OrdersController],
-  providers: [OrdersService, PrismaService, PointsService, StreaksService, AttendanceService, RedisService, WalletService, BusinessRulesService],
+  providers: [OrdersService, PrismaService, PointsService, StreaksService, AttendanceService, RedisService, WalletService, BusinessRulesService, RazorpayService],
   exports: [OrdersService],
 })
 export class OrdersModule {}
