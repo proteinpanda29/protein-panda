@@ -12,11 +12,12 @@ import { AttendanceService } from '../streaks/attendance.service';
 import { BusinessRulesService } from '../common/business-rules.service';
 import { SegmentsService } from './segments.service';
 import { SegmentsController } from './segments.controller';
+import { RazorpayService } from '../payments/razorpay.service';
 
 @Module({
   imports: [AuthModule],
   controllers: [CustomersController, AddressesController, FavouritesController, SegmentsController],
-  providers: [CustomersService, AddressesService, FavouritesService, WalletService, PrismaService, AttendanceService, SegmentsService, BusinessRulesService],
+  providers: [CustomersService, AddressesService, FavouritesService, WalletService, PrismaService, AttendanceService, SegmentsService, BusinessRulesService, RazorpayService],
   exports: [WalletService],
 })
 export class CustomersModule {}
