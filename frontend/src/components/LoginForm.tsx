@@ -34,7 +34,7 @@ export function LoginForm({ portal, title, subtitle, allowSignup, redirectPath, 
     setError(null);
     setLoading(true);
     try {
-      await api.requestOtp(identifier);
+     await api.requestOtp(identifier, portal);
       setStep('otp');
     } catch (err: any) {
       setError(err.message);
@@ -48,7 +48,7 @@ export function LoginForm({ portal, title, subtitle, allowSignup, redirectPath, 
     setError(null);
     setLoading(true);
     try {
-      const { accessToken, role, departments, userId } = await api.verifyOtp(identifier, code, name || undefined, gymName || undefined, referredByCode);
+    const { accessToken, role, departments, userId } = await api.verifyOtp(identifier, code, name || undefined, gymName || undefined, referredByCode, portal);
 
       // Each portal only accepts its own role — a customer OTP-ing into
       // /admin/login (or vice versa) is a real account, just the wrong
@@ -87,15 +87,15 @@ export function LoginForm({ portal, title, subtitle, allowSignup, redirectPath, 
           {portal === 'CUSTOMER' && (
             <GoogleSignInButton portal={portal} redirectPath={redirectPath} wrongPortalHint={wrongPortalHint} onError={setError} />
           )}
-          <form onSubmit={submitIdentifier} className="flex flex-col gap-4">
+                    <form onSubmit={submitIdentifier} className="flex flex-col gap-4">
             <label className="text-xs font-semibold uppercase tracking-wide text-brand-body">
-              Mobile number or email
+              {portal === 'CUSTOMER' ? 'Email address' : 'Mobile number or email'}
               <input
-                type="text"
+                type={portal === 'CUSTOMER' ? 'email' : 'text'}
                 required
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
-                placeholder="+91 9xxxxxxxxx or you@example.com"
+                placeholder={portal === 'CUSTOMER' ? 'you@example.com' : '+91 9xxxxxxxxx or you@example.com'}
                 className="mt-1 w-full rounded-lg border border-brand-grey bg-brand-white px-4 py-3 text-brand-black outline-none focus:border-brand-primary"
               />
             </label>
@@ -114,7 +114,7 @@ export function LoginForm({ portal, title, subtitle, allowSignup, redirectPath, 
       {step === 'otp' && (
         <form onSubmit={submitOtp} className="flex flex-col gap-4">
           <label className="text-xs font-semibold uppercase tracking-wide text-brand-body">
-            Enter the 6-digit code sent to your {isEmail ? 'email' : 'phone'}
+          Enter the 6-digit code sent to your {portal === 'CUSTOMER' ? 'email' : isEmail ? 'email' : 'phone'}
             <input
               type="text"
               required
@@ -166,7 +166,7 @@ export function LoginForm({ portal, title, subtitle, allowSignup, redirectPath, 
             onClick={() => setStep('identifier')}
             className="text-xs font-semibold uppercase tracking-wide text-brand-body underline"
           >
-            Use a different number or email
+         {portal === 'CUSTOMER' ? 'Use a different email' : 'Use a different number or email'}
           </button>
         </form>
       )}
