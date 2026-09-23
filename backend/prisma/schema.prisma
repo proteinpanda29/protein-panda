@@ -596,6 +596,7 @@ model Order {
   // from totalRs alone) so it's still visible on the receipt as its
   // own line rather than silently inflating the food subtotal.
   challengeFeeRs  Decimal         @db.Decimal(8, 2) @default(0)
+  takeawayFeeRs   Decimal         @db.Decimal(8, 2) @default(0)
   totalProteinG   Decimal         @db.Decimal(7, 2) @default(0)
   totalCalories   Int             @default(0)
   couponId        String?
@@ -1310,16 +1311,28 @@ model Session {
 
   @@index([userId])
 }
-
 model Wallet {
   id         String   @id @default(uuid())
   customerId String   @unique
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   balanceRs  Decimal  @default(0) @db.Decimal(10, 2)
+  expiresAt         DateTime?
+  activePackageName String?
   updatedAt  DateTime @updatedAt
 
   transactions WalletTransaction[]
 }
+
+model WalletPackage {
+  id           String   @id @default(uuid())
+  name         String
+  priceRs      Decimal  @db.Decimal(10, 2)
+  creditRs     Decimal  @db.Decimal(10, 2)
+  validityDays Int
+  isActive     Boolean  @default(true)
+  sortOrder    Int      @default(0)
+}
+
 
 enum WalletTransactionType {
   REFUND            // a refund credited here instead of the original payment method
