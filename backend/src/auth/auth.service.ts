@@ -52,7 +52,11 @@ export class AuthService {
    * leaking which numbers/emails are registered, and lets a brand-new
    * customer sign up with the exact same flow as logging in.
    */
-  async requestOtp(identifier: string) {
+   async requestOtp(identifier: string, portal?: string) {
+    if (portal === 'CUSTOMER' && !isEmail(identifier)) {
+      throw new UnauthorizedException('Please use your email address to sign in.');
+    }
+
     const code = String(Math.floor(100000 + Math.random() * 900000));
     const codeHash = await bcrypt.hash(code, OTP_BCRYPT_COST);
 
@@ -88,7 +92,11 @@ export class AuthService {
    * accounts are provisioned separately by the business and are never
    * created through this self-service flow.
    */
-  async verifyOtp(identifier: string, code: string, name?: string, gymName?: string, referredByCode?: string, deviceInfo?: string) {
+   async verifyOtp(identifier: string, code: string, name?: string, gymName?: string, referredByCode?: string, deviceInfo?: string, portal?: string) {
+    if (portal === 'CUSTOMER' && !isEmail(identifier)) {
+      throw new UnauthorizedException('Please use your email address to sign in.');
+    }
+
     const otp = await this.prisma.otpCode.findFirst({
       where: { identifier, purpose: 'LOGIN', consumedAt: null },
       orderBy: { createdAt: 'desc' },
