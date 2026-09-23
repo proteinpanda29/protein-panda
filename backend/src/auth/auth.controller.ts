@@ -12,6 +12,10 @@ class RequestOtpDto {
   @IsString()
   @Matches(IDENTIFIER_RE, { message: 'Enter a valid mobile number or email address' })
   identifier: string;
+
+  @IsOptional()
+  @IsString()
+  portal?: string;
 }
 
 class GoogleLoginDto {
@@ -28,10 +32,14 @@ class VerifyOtpDto {
   @Length(6, 6)
   code: string;
 
-  // Only used the first time — when this identifier has no account yet.
+   // Only used the first time — when this identifier has no account yet.
   @IsOptional()
   @IsString()
   name?: string;
+
+  @IsOptional()
+  @IsString()
+  portal?: string;
 
   // Entirely optional — only powers the Gym vs Gym leaderboard if set.
   @IsOptional()
@@ -51,16 +59,16 @@ class VerifyOtpDto {
 export class AuthController {
   constructor(private authService: AuthService) {}
 
-  @Post('otp/request')
+   @Post('otp/request')
   @Throttle({ default: { limit: 3, ttl: 60_000 } }) // 3 requests/minute/IP
   requestOtp(@Body() dto: RequestOtpDto) {
-    return this.authService.requestOtp(dto.identifier);
+    return this.authService.requestOtp(dto.identifier, dto.portal);
   }
 
   @Post('otp/verify')
   @Throttle({ default: { limit: 5, ttl: 60_000 } }) // 5 attempts/minute/IP
   verifyOtp(@Body() dto: VerifyOtpDto, @Headers('user-agent') userAgent?: string) {
-    return this.authService.verifyOtp(dto.identifier, dto.code, dto.name, dto.gymName, dto.referredByCode, userAgent);
+    return this.authService.verifyOtp(dto.identifier, dto.code, dto.name, dto.gymName, dto.referredByCode, userAgent, dto.portal);
   }
 
   @Post('google')
