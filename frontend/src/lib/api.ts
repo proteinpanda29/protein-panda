@@ -239,7 +239,10 @@ export const api = {
     const qs = new URLSearchParams(params as any).toString();
     return request(`/admin/audit-log${qs ? `?${qs}` : ''}`);
   },
-  myWalletTransactions: () => request('/customers/me/wallet-transactions'),
+    myWalletTransactions: () => request('/customers/me/wallet-transactions'),
+  myWalletOverview: () => request('/customers/me/wallet'),
+  listWalletPackages: () => request('/customers/wallet-packages'),
+  purchaseWalletPackage: (packageId: string) => request(`/customers/me/wallet-packages/${packageId}/purchase`, { method: 'POST' }),
   mySessions: () => request('/auth/sessions'),
   revokeSession: (id: string) => request(`/auth/sessions/${id}`, { method: 'DELETE' }),
   getVapidPublicKey: () => request('/notifications/push/vapid-public-key'),
