@@ -13,6 +13,7 @@ interface ChatMessage {
 // gemini-pro-latest after hitting a real 0-quota 429 in production —
 // Pro requires billing enabled on the API key, Flash does not.
 const MODEL = 'gemini-flash-latest';
+const MAX_HISTORY_MESSAGES = 20; // keep requests bounded; frontend can still keep full history locally
 
 /**
  * Keyword-based pre-flight check on the customer's latest message —
