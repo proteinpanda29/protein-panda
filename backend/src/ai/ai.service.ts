@@ -5,6 +5,7 @@ interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
 }
+
 // gemini-flash-latest — an alias Google keeps pointed at their current
 // best Flash model, so this never needs manual updating as new Gemini
 // versions ship. Unlike Pro (removed from the free tier in April
@@ -14,6 +15,12 @@ interface ChatMessage {
 // Pro requires billing enabled on the API key, Flash does not.
 const MODEL = 'gemini-flash-latest';
 const MAX_HISTORY_MESSAGES = 20; // keep requests bounded; frontend can still keep full history locally
+// A transient "model overloaded" 503 from Google clears on its own
+// within seconds most of the time — worth a couple of quick retries
+// before actually failing the request, rather than making the
+// customer manually resend their message.
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 1000; // doubles each retry: 1s, 2s, 4s
 
 /**
  * Keyword-based pre-flight check on the customer's latest message —
@@ -70,28 +77,47 @@ export class AiService {
     // (not "assistant") for the AI's own turns, and the system prompt
     // is a separate top-level "systemInstruction" field rather than a
     // "system" string alongside messages.
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey,
-      },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        contents: trimmedHistory.map((m) => ({
-          role: m.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: m.content }],
-        })),
-        generationConfig: { maxOutputTokens: 500 },
-      }),
+    const requestBody = JSON.stringify({
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents: trimmedHistory.map((m) => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }],
+      })),
+      generationConfig: { maxOutputTokens: 500 },
     });
 
-    if (!response.ok) {
-      const errBody = await response.text().catch(() => '');
-      throw new InternalServerErrorException(`AI assistant request failed: ${response.status} ${errBody}`);
+    let response: Response | undefined;
+    let lastErrBody = '';
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey,
+        },
+        body: requestBody,
+      });
+
+      if (response.ok) break;
+
+      // Only 503 (model temporarily overloaded) is worth retrying — a
+      // 429 (quota exhausted) or 400 (bad request) will just fail the
+      // exact same way again immediately, so retrying those only
+      // delays a genuine error the customer needs to see.
+      if (response.status !== 503 || attempt === MAX_RETRIES) {
+        lastErrBody = await response.text().catch(() => '');
+        break;
+      }
+
+      this.logger.warn(`Gemini returned 503 (overloaded) — retry ${attempt + 1}/${MAX_RETRIES} in ${RETRY_DELAY_MS * 2 ** attempt}ms`);
+      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS * 2 ** attempt));
     }
 
-    const data = await response.json();
+    if (!response!.ok) {
+      throw new InternalServerErrorException(`AI assistant request failed: ${response!.status} ${lastErrBody}`);
+    }
+
+    const data = await response!.json();
     // A blocked response (safety filter, recitation, etc.) has no
     // parts at all rather than an HTTP error — surfaced as a normal,
     // if unhelpful, reply rather than a crash, since the app's own
