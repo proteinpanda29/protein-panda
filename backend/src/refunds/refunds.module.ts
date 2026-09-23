@@ -9,10 +9,11 @@ import { RedisService } from '../common/redis.service';
 import { WalletService } from '../customers/wallet.service';
 import { AuditLogModule } from '../audit-log/audit-log.module';
 import { BusinessDayLockService } from '../common/business-day-lock.service';
+import { BusinessRulesService } from '../common/business-rules.service';
 
 @Module({
   imports: [InventoryModule, AuditLogModule],
   controllers: [RefundsController],
-  providers: [RefundsService, PrismaService, PointsService, RazorpayService, RedisService, WalletService, BusinessDayLockService],
+  providers: [RefundsService, PrismaService, PointsService, RazorpayService, RedisService, WalletService, BusinessDayLockService, BusinessRulesService],
 })
 export class RefundsModule {}
