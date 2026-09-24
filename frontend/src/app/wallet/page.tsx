@@ -18,6 +18,8 @@ interface WalletOverview {
   expiresAt: string | null;
   isLowBalance: boolean;
   lowBalanceThresholdRs: number;
+  todaysOrdersRs: number;
+  todaysRemainingBalanceRs: number;
   transactions: WalletTransaction[];
 }
 
@@ -91,6 +93,19 @@ export default function WalletPage() {
           {isExpired && (
             <p className="mt-2 text-xs text-red-600">Your package has expired — buy a new one below to keep using your Panda Wallet.</p>
           )}
+        </div>
+      )}
+
+      {overview && (
+        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="rounded-2xl border border-brand-grey bg-brand-white p-5">
+            <p className="text-xs font-bold uppercase tracking-wide text-brand-body">Today's Orders</p>
+            <p className="text-2xl font-extrabold text-brand-black">₹{overview.todaysOrdersRs.toFixed(0)}</p>
+          </div>
+          <div className="rounded-2xl border border-brand-grey bg-brand-white p-5">
+            <p className="text-xs font-bold uppercase tracking-wide text-brand-body">Today's Remaining Balance</p>
+            <p className="text-2xl font-extrabold text-brand-black">₹{overview.todaysRemainingBalanceRs.toFixed(0)}</p>
+          </div>
         </div>
       )}
 
