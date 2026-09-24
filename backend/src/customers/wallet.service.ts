@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { RazorpayService } from '../payments/razorpay.service';
 import { BusinessRulesService } from '../common/business-rules.service';
+import { EmailService } from '../notifications/email.service';
 
 type Tx = any;
 
@@ -11,9 +12,9 @@ export class WalletService {
     private prisma: PrismaService,
     private razorpay: RazorpayService,
     private businessRules: BusinessRulesService,
+    private email: EmailService,
   ) {}
 
-  /** Creates the wallet on first use — most customers will never need one, so it's not created at signup. */
   private async getOrCreateWallet(tx: Tx, customerId: string) {
     const existing = await tx.wallet.findUnique({ where: { customerId } });
     if (existing) return existing;
@@ -45,15 +46,6 @@ export class WalletService {
     });
   }
 
-  /**
-   * Used to pay for an order. Throws on insufficient balance rather
-   * than allowing a wallet to go negative — a wallet is spendable
-   * credit, not a line of credit or an overdraft. Balance past a
-   * package's own expiresAt is treated as unusable (0), per the
-   * finalized spec's own validity-window design — a wallet that's
-   * never bought a package (expiresAt null) has no expiry to check
-   * at all.
-   */
   async debit(tx: Tx, params: { customerId: string; amountRs: number; type: 'ORDER_PAYMENT' | 'TIP' | 'ADMIN_ADJUSTMENT'; orderId?: string; note?: string }) {
     if (params.amountRs <= 0) throw new BadRequestException('Debit amount must be positive');
 
@@ -79,16 +71,7 @@ export class WalletService {
         note: params.note,
       },
     });
-    // Balance before/after included specifically for callers building a
-    // wallet-order receipt (see the finalized spec: the email needs to
-    // show both) — avoids a second query right after this one for
-    // something already known here.
     const balanceAfterRs = balance - params.amountRs;
-    // Same "just crossed" detection as the low-stock alert — only true
-    // the one debit that pushes the balance under the threshold, not
-    // every debit afterward while it stays low, so this never fires a
-    // fresh warning on every single order once a customer is already
-    // running low.
     const rules = await this.businessRules.getRules();
     const crossedLowBalanceThreshold = balance >= rules.lowBalanceThresholdRs && balanceAfterRs < rules.lowBalanceThresholdRs;
     return { transaction, balanceBeforeRs: balance, balanceAfterRs, crossedLowBalanceThreshold };
@@ -100,22 +83,26 @@ export class WalletService {
     return prisma.walletTransaction.findMany({ where: { walletId: wallet.id }, orderBy: { createdAt: 'desc' } });
   }
 
-  /** The customer-facing wallet screen — balance, active package, expiry, low-balance warning, and a full transaction list in one call. */
   async getWalletOverview(customerId: string) {
     const wallet = await this.prisma.wallet.findUnique({ where: { customerId } });
     const transactions = await this.listTransactions(customerId, this.prisma);
     const rules = await this.businessRules.getRules();
     const balanceRs = wallet ? Number(wallet.balanceRs) : 0;
+
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const todaysOrdersRs = transactions
+      .filter((t: any) => t.type === 'ORDER_PAYMENT' && new Date(t.createdAt) >= startOfToday)
+      .reduce((sum: number, t: any) => sum + Math.abs(Number(t.amountRs)), 0);
+
     return {
       balanceRs,
       activePackageName: wallet?.activePackageName ?? null,
       expiresAt: wallet?.expiresAt ?? null,
-      // Computed live every time this is called, not a stored flag —
-      // always reflects the real current balance, including going back
-      // to false again the moment a top-up brings it back over the
-      // threshold, with nothing to separately reset.
       isLowBalance: balanceRs < rules.lowBalanceThresholdRs,
       lowBalanceThresholdRs: rules.lowBalanceThresholdRs,
+      todaysOrdersRs,
+      todaysRemainingBalanceRs: balanceRs,
       transactions,
     };
   }
@@ -124,18 +111,14 @@ export class WalletService {
     return this.prisma.walletPackage.findMany({ where: { isActive: true }, orderBy: { sortOrder: 'asc' } });
   }
 
-  /**
-   * Real money changing hands — a Razorpay Payment Link, same pattern
-   * as the tip-via-UPI and cash-collection-via-UPI flows. The wallet
-   * is only actually credited once Razorpay confirms payment (see
-   * confirmPackagePurchase), never optimistically here.
-   */
   async purchasePackage(customerId: string, packageId: string) {
     const pkg = await this.prisma.walletPackage.findUniqueOrThrow({ where: { id: packageId } });
     if (!pkg.isActive) throw new BadRequestException('This package is no longer available');
 
+    const totalChargeRs = Number(pkg.priceRs) + Number(pkg.packageFeeRs);
+
     const paymentLink = await this.razorpay.createPaymentLink({
-      amountRs: Number(pkg.priceRs),
+      amountRs: totalChargeRs,
       referenceId: `wallet-package:${customerId}:${pkg.id}`,
       description: `Panda Wallet — ${pkg.name}`,
     });
@@ -143,18 +126,9 @@ export class WalletService {
     return { paymentLinkId: paymentLink.id, shortUrl: paymentLink.short_url };
   }
 
-  /**
-   * Called from the payments webhook once Razorpay confirms a wallet
-   * package purchase was actually paid — parses the customer and
-   * package back out of the reference_id purchasePackage encoded.
-   * Buying a new package while one is still active simply adds this
-   * package's credit on top of any remaining balance and resets the
-   * expiry to a fresh window from now, rather than trying to merge or
-   * stack two different validity windows.
-   */
   async confirmPackagePurchase(customerId: string, packageId: string) {
     const pkg = await this.prisma.walletPackage.findUnique({ where: { id: packageId } });
-    if (!pkg) return; // a package that's since been deleted — nothing sensible to credit
+    if (!pkg) return;
 
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + pkg.validityDays);
@@ -169,10 +143,99 @@ export class WalletService {
         data: {
           walletId: wallet.id,
           amountRs: Number(pkg.creditRs),
-          type: 'ADMIN_ADJUSTMENT', // closest existing type — a real "PACKAGE_PURCHASE" type would need its own migration
+          type: 'ADMIN_ADJUSTMENT',
           note: `Purchased ${pkg.name} package`,
         },
       });
     });
+  }
+
+  async sendDailyInvoices(now: Date = new Date()) {
+    const startOfDay = new Date(now);
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(now);
+    endOfDay.setHours(23, 59, 59, 999);
+
+    const todaysDebits = await this.prisma.walletTransaction.findMany({
+      where: { type: 'ORDER_PAYMENT', createdAt: { gte: startOfDay, lte: endOfDay } },
+      include: { wallet: { include: { customer: { include: { user: true } } } } },
+      orderBy: { createdAt: 'asc' },
+    });
+
+    const byWalletId = new Map<string, typeof todaysDebits>();
+    for (const tx of todaysDebits) {
+      if (!byWalletId.has(tx.walletId)) byWalletId.set(tx.walletId, []);
+      byWalletId.get(tx.walletId)!.push(tx);
+    }
+
+    let sent = 0;
+    for (const [, transactions] of byWalletId) {
+      const wallet = transactions[0].wallet;
+      const email = wallet.customer.user.email;
+      if (!email) continue;
+
+      const closingBalanceRs = Number(wallet.balanceRs);
+      const todaysTotalRs = transactions.reduce((sum: number, t: { amountRs: unknown }) => sum + Math.abs(Number(t.amountRs)), 0);
+      const openingBalanceRs = closingBalanceRs + todaysTotalRs;
+
+      const orderIds = transactions.map((t: { orderId: string | null }) => t.orderId).filter((id: string | null): id is string => !!id);
+      const orders = await this.prisma.order.findMany({
+        where: { id: { in: orderIds } },
+        include: { items: { include: { product: true } } },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      const rowsHtml = orders
+        .flatMap((o: any) =>
+          o.items.map(
+            (i: any) =>
+              `<tr><td>${o.orderNumber}</td><td>${new Date(o.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</td><td>${i.product.name}</td><td>${i.quantity}</td><td>₹${(Number(i.unitPriceRs) * i.quantity).toFixed(2)}</td></tr>`,
+          ),
+        )
+        .join('');
+
+      await this.email.send({
+        to: email,
+        subject: `Protein Panda — Daily Wallet Invoice (${startOfDay.toLocaleDateString('en-IN')})`,
+        html: `
+          <h2>Protein Panda — Daily Invoice</h2>
+          <p>Customer: ${wallet.customer.name}</p>
+          <p>Plan: ${wallet.activePackageName ?? 'N/A'}</p>
+          <p>Date: ${startOfDay.toLocaleDateString('en-IN')}</p>
+          <table border="1" cellpadding="6" cellspacing="0">
+            <tr><th>Order</th><th>Time</th><th>Item</th><th>Qty</th><th>Amount</th></tr>
+            ${rowsHtml}
+          </table>
+          <p><strong>Today's Total: ₹${todaysTotalRs.toFixed(2)}</strong></p>
+          <p>Opening Wallet: ₹${openingBalanceRs.toFixed(2)}</p>
+          <p>Today's Deduction: ₹${todaysTotalRs.toFixed(2)}</p>
+          <p><strong>Closing Wallet: ₹${closingBalanceRs.toFixed(2)}</strong></p>
+        `,
+      });
+
+      await this.prisma.dailyBillingRecord.upsert({
+        where: { customerId_billDate: { customerId: wallet.customerId, billDate: startOfDay } },
+        create: {
+          customerId: wallet.customerId,
+          billDate: startOfDay,
+          orderCount: orders.length,
+          todaysTotalRs,
+          openingBalanceRs,
+          closingBalanceRs,
+          emailSent: true,
+        },
+        update: {
+          orderCount: orders.length,
+          todaysTotalRs,
+          openingBalanceRs,
+          closingBalanceRs,
+          emailSent: true,
+        },
+      });
+
+      sent++;
+    }
+
+    return { invoicesSent: sent };
   }
 }
