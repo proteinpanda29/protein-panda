@@ -7,17 +7,26 @@ import { DepartmentGuard } from '../common/department.guard';
 import { PermissionLevelGuard } from '../common/permission-level.guard';
 import { Departments } from '../common/departments.decorator';
 import { PosService } from './pos.service';
+import { WalletService } from '../customers/wallet.service';
 
 @Controller('admin/pos')
 @UseGuards(JwtAuthGuard, RolesGuard, DepartmentGuard, PermissionLevelGuard)
 @Roles(Role.ADMIN)
 @Departments(StaffDepartment.SALES)
 export class PosController {
-  constructor(private pos: PosService) {}
+  constructor(
+    private pos: PosService,
+    private wallet: WalletService,
+  ) {}
 
   @Get('customers')
   searchCustomers(@Query('q') q: string) {
     return this.pos.searchCustomers(q);
+  }
+
+  @Get('customers/:id/wallet')
+  customerWallet(@Param('id') id: string) {
+    return this.wallet.getWalletOverview(id);
   }
 
   @Get('customers/:id/redemptions')
