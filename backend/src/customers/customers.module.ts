@@ -13,11 +13,14 @@ import { BusinessRulesService } from '../common/business-rules.service';
 import { SegmentsService } from './segments.service';
 import { SegmentsController } from './segments.controller';
 import { RazorpayService } from '../payments/razorpay.service';
+import { EmailService } from '../notifications/email.service';
+import { WalletCronService } from './wallet-cron.service';
 
 @Module({
   imports: [AuthModule],
   controllers: [CustomersController, AddressesController, FavouritesController, SegmentsController],
-  providers: [CustomersService, AddressesService, FavouritesService, WalletService, PrismaService, AttendanceService, SegmentsService, BusinessRulesService, RazorpayService],
+  providers: [CustomersService, AddressesService, FavouritesService, WalletService, WalletCronService, PrismaService, AttendanceService, SegmentsService, BusinessRulesService, RazorpayService, EmailService],
   exports: [WalletService],
 })
+export class CustomersModule {}
 export class CustomersModule {}
