@@ -1377,7 +1377,6 @@ model DailyBillingRecord {
   @@unique([customerId, billDate])
   @@index([billDate])
 }
-}
 
 model Address {
   id           String       @id @default(uuid())
