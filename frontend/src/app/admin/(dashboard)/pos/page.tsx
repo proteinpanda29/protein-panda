@@ -73,7 +73,7 @@ export default function PosPage() {
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [customizing, setCustomizing] = useState<Product | null>(null);
   const [cart, setCart] = useState<CartLine[]>([]);
-  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'UPI' | 'CARD'>('CASH');
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'UPI' | 'CARD' | 'WALLET'>('CASH');
   const [couponCode, setCouponCode] = useState('');
   const [manualDiscount, setManualDiscount] = useState('');
   const [manualDiscountReason, setManualDiscountReason] = useState('');
