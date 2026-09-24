@@ -271,6 +271,7 @@ model Customer {
   aiSafetyFlags     AiSafetyFlag[]
   notifications     Notification[]
   supportTickets    SupportTicket[]
+  dailyBillingRecords DailyBillingRecord[]
 
   @@index([goal])
   @@index([gymName])
@@ -1325,10 +1326,11 @@ model Wallet {
 
 model WalletPackage {
   id           String   @id @default(uuid())
-  name         String
+  name         String   // "Weekly Basic", "Monthly Pro"
   priceRs      Decimal  @db.Decimal(10, 2)
   creditRs     Decimal  @db.Decimal(10, 2)
   validityDays Int
+  packageFeeRs Decimal  @db.Decimal(10, 2) @default(0)
   isActive     Boolean  @default(true)
   sortOrder    Int      @default(0)
 }
@@ -1356,7 +1358,25 @@ model WalletTransaction {
   note       String?
   createdAt  DateTime               @default(now())
 
-  @@index([walletId])
+   @@index([walletId])
+}
+
+model DailyBillingRecord {
+  id                String   @id @default(uuid())
+  customerId        String
+  customer          Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  billDate          DateTime @db.Date
+  orderCount        Int
+  todaysTotalRs     Decimal  @db.Decimal(10, 2)
+  openingBalanceRs  Decimal  @db.Decimal(10, 2)
+  closingBalanceRs  Decimal  @db.Decimal(10, 2)
+  emailSent         Boolean  @default(false)
+  whatsappSent      Boolean  @default(false)
+  createdAt         DateTime @default(now())
+
+  @@unique([customerId, billDate])
+  @@index([billDate])
+}
 }
 
 model Address {
