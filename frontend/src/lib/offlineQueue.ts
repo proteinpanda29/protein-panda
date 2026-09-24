@@ -6,7 +6,7 @@ export interface QueuedSale {
   id: string; // also used as the order's idempotencyKey
   payload: {
     customerId: string;
-    paymentMethod: 'CASH' | 'UPI' | 'CARD';
+        paymentMethod: 'CASH' | 'UPI' | 'CARD' | 'WALLET';
     items: { productId: string; quantity: number; addonIds?: string[] }[];
     couponCode?: string;
     redemptionId?: string;
