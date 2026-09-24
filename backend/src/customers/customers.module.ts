@@ -23,4 +23,3 @@ import { WalletCronService } from './wallet-cron.service';
   exports: [WalletService],
 })
 export class CustomersModule {}
-export class CustomersModule {}
