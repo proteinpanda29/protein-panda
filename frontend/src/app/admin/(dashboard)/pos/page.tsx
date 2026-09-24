@@ -177,10 +177,16 @@ export default function PosPage() {
     return matchesCategory && matchesSearch;
   });
   
-  const completeSale = async () => {
+    const completeSale = async () => {
     if (!customer || cart.length === 0) return;
     setBusy(true);
     setError(null);
+
+    if (!isOnline && paymentMethod === 'WALLET') {
+      setError('Wallet payment needs an internet connection — pick Cash, UPI, or Card instead while offline.');
+      setBusy(false);
+      return;
+    }
 
     const salePayload = {
       customerId: customer.id,
