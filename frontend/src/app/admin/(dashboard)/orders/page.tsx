@@ -1,9 +1,41 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { useOrderUpdates } from '@/lib/useOrderUpdates';
 import { printReceipt } from '@/lib/printReceipt';
+
+/**
+ * A short, distinct two-tone chime for a genuinely new incoming order —
+ * generated directly via the Web Audio API rather than an audio file,
+ * so there's no asset to go missing and nothing to load. Wrapped in a
+ * try/catch since some browsers block audio before any user
+ * interaction on the page; a failed beep should never break the order
+ * list itself.
+ */
+function playNewOrderAlert() {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    const ctx = new AudioContextClass();
+    const playTone = (freq: number, startTime: number, duration: number) => {
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+      oscillator.type = 'sine';
+      oscillator.frequency.value = freq;
+      gain.gain.setValueAtTime(0.3, startTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+      oscillator.start(startTime);
+      oscillator.stop(startTime + duration);
+    };
+    const now = ctx.currentTime;
+    playTone(880, now, 0.15);
+    playTone(1175, now + 0.15, 0.25);
+  } catch {
+    // Silently skip — a missed sound is not worth surfacing an error for.
+  }
+}
 
 function printReceiptViaBluetooth(order: {
   orderNumber: string;
@@ -54,6 +86,8 @@ interface OrderRow {
 
 export default function AdminOrdersPage() {
   const [orders, setOrders] = useState<OrderRow[]>([]);
+  const [newOrderIds, setNewOrderIds] = useState<Set<string>>(new Set());
+  const knownOrderIdsRef = useRef<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [updating, setUpdating] = useState<string | null>(null);
@@ -70,10 +104,35 @@ export default function AdminOrdersPage() {
   };
 
   useOrderUpdates((event) => {
-    setOrders((prev) => prev.map((o) => (o.id === event.orderId ? { ...o, status: event.status } : o)));
+    const alreadyKnown = knownOrderIdsRef.current.has(event.orderId);
+
+    if (alreadyKnown) {
+      setOrders((prev) => prev.map((o) => (o.id === event.orderId ? { ...o, status: event.status } : o)));
+      return;
+    }
+
+    knownOrderIdsRef.current.add(event.orderId);
+    load();
+    playNewOrderAlert();
+
+    setNewOrderIds((prev) => {
+      const next = new Set(prev);
+      next.add(event.orderId);
+      return next;
+    });
+    setTimeout(() => {
+      setNewOrderIds((cur) => {
+        const cleared = new Set(cur);
+        cleared.delete(event.orderId);
+        return cleared;
+      });
+    }, 15000);
   });
 
   useEffect(load, [statusFilter]);
+  useEffect(() => {
+    orders.forEach((o) => knownOrderIdsRef.current.add(o.id));
+  }, [orders]);
   useEffect(() => {
     api.adminAvailableRiders().then(setRiders).catch(() => undefined);
   }, []);
@@ -197,11 +256,23 @@ export default function AdminOrdersPage() {
             const canRefund = order.payment?.status === 'PAID' && refundableRs > 0;
 
             return (
-              <div key={order.id} className="rounded-2xl border border-brand-grey bg-brand-white p-4">
+              <div
+                key={order.id}
+                className={`rounded-2xl border p-4 transition-all ${
+                  newOrderIds.has(order.id)
+                    ? 'animate-pulse border-brand-primary bg-brand-primary/10 shadow-lg shadow-brand-primary/30'
+                    : 'border-brand-grey bg-brand-white'
+                }`}
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <p className="font-bold text-brand-black">
                       #{order.orderNumber} · {order.customer.name}
+                      {newOrderIds.has(order.id) && (
+                        <span className="ml-2 rounded-full bg-brand-primary px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wide text-brand-white">
+                          🆕 New
+                        </span>
+                      )}
                     </p>
                     <p className="text-xs text-brand-body">
                       {order.items.map((i) => `${i.quantity}× ${i.product.name}`).join(', ')}
