@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma.service';
 import { OrdersGateway } from '../common/orders.gateway';
@@ -9,7 +9,7 @@ import { PaymentsService } from '../payments/payments.service';
 // it is not a value in the OrderStatus enum, so it updates the DeliveryOrder
 // timestamp but does not touch Order.status. OUT_FOR_DELIVERY, ARRIVED, and
 // DELIVERED map directly onto OrderStatus and update both records.
-const ACTION_MAP: Record<
+const ACTION_MAP: Record
   string,
   { deliveryField: 'pickedUpAt' | 'outForDeliveryAt' | 'arrivedAt' | 'deliveredAt'; orderStatus?: string }
 > = {
@@ -59,6 +59,40 @@ export class DeliveryService {
     // directly could mark an order delivered without ever actually
     // meeting the customer, which defeats the entire safeguard.
     return records.map(({ deliveryOtp, ...rest }: any) => rest);
+  }
+
+  /**
+   * An explicit "I collected the cash" action for the rider — distinct
+   * from the automatic confirmation that already happens when marking
+   * an order Delivered (see updateDeliveryStatus below). Some riders
+   * collect payment at handoff but confirm the order itself
+   * (photos/handover code) a moment later, so this gives them a
+   * separate, clearly-labelled button rather than folding cash
+   * confirmation invisibly into a different action's label. Scoped to
+   * this rider's own assigned order — never any other rider's.
+   */
+  async collectCash(deliveryPersonId: string, deliveryOrderId: string) {
+    const deliveryOrder = await this.prisma.deliveryOrder.findUniqueOrThrow({
+      where: { id: deliveryOrderId },
+      include: { order: { include: { payment: true } } },
+    });
+    if (deliveryOrder.deliveryPersonId !== deliveryPersonId) {
+      throw new ForbiddenException('This delivery is not assigned to you');
+    }
+    const payment = deliveryOrder.order.payment;
+    if (!payment) throw new NotFoundException('This order has no payment record');
+    if (payment.method !== 'CASH') throw new BadRequestException('This order is not a cash payment');
+    if (payment.status === 'PAID') throw new BadRequestException('Already marked as paid');
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.payment.update({
+        where: { id: payment.id },
+        data: { status: 'PAID', paidAt: new Date() },
+      });
+      await this.orders.grantOrderRewards(tx, deliveryOrder.order.id, deliveryOrder.order.customerId, Number(deliveryOrder.order.totalProteinG), Number(deliveryOrder.order.totalRs));
+    });
+
+    return { orderId: deliveryOrder.order.id, paid: true };
   }
 
   async setDutyStatus(deliveryPersonId: string, isOnDuty: boolean) {
