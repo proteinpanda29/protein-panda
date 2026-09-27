@@ -270,7 +270,7 @@ model Customer {
   achievements      CustomerAchievement[]
   aiSafetyFlags     AiSafetyFlag[]
   notifications     Notification[]
-  supportTickets    SupportTicket[]
+   supportTickets    SupportTicket[]
   dailyBillingRecords DailyBillingRecord[]
 
   @@index([goal])
@@ -1369,7 +1369,24 @@ model WalletTransaction {
   note       String?
   createdAt  DateTime               @default(now())
 
-   @@index([walletId])
+     @@index([walletId])
+}
+
+model DailyBillingRecord {
+  id                String   @id @default(uuid())
+  customerId        String
+  customer          Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  billDate          DateTime @db.Date
+  orderCount        Int
+  todaysTotalRs     Decimal  @db.Decimal(10, 2)
+  openingBalanceRs  Decimal  @db.Decimal(10, 2)
+  closingBalanceRs  Decimal  @db.Decimal(10, 2)
+  emailSent         Boolean  @default(false)
+  whatsappSent      Boolean  @default(false)
+  createdAt         DateTime @default(now())
+
+  @@unique([customerId, billDate])
+  @@index([billDate])
 }
 
 model DailyBillingRecord {
