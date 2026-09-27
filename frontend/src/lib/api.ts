@@ -32,16 +32,6 @@ async function request(path: string, options: RequestInit = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
-      // Only declare a JSON content-type when there's actually a body
-      // to describe — a GET request has no body at all, and declaring
-      // `Content-Type: application/json` on one anyway made Fastify's
-      // strict body parser reject it outright ("Body cannot be empty
-      // when content-type is set to 'application/json'"), breaking
-      // every GET request through this helper. This went undetected
-      // all session because every boot-test check used curl, which
-      // was never set up to send this header on GET calls the way a
-      // real browser's fetch() here always was — found only once a
-      // real person used a real browser against a real deployment.
       ...(options.body ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...options.headers,
@@ -51,10 +41,6 @@ async function request(path: string, options: RequestInit = {}) {
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
 
-    // A 401 means the session token is invalid or stale (e.g. the account
-    // it points to no longer exists — this happens after a database
-    // reset during development). Clear it so the app doesn't keep
-    // silently sending a dead token; the person just needs to log in again.
     if (res.status === 401 && typeof window !== 'undefined') {
       localStorage.removeItem('pp_token');
       localStorage.removeItem('pp_role');
@@ -68,7 +54,7 @@ async function request(path: string, options: RequestInit = {}) {
 }
 
 export const api = {
-   requestOtp: (identifier: string, portal?: string) => request('/auth/otp/request', { method: 'POST', body: JSON.stringify({ identifier, portal }) }),
+  requestOtp: (identifier: string, portal?: string) => request('/auth/otp/request', { method: 'POST', body: JSON.stringify({ identifier, portal }) }),
   verifyOtp: (identifier: string, code: string, name?: string, gymName?: string, referredByCode?: string, portal?: string) =>
     request('/auth/otp/verify', { method: 'POST', body: JSON.stringify({ identifier, code, name, gymName, referredByCode, portal }) }),
   verifyGoogleToken: (idToken: string) => request('/auth/google', { method: 'POST', body: JSON.stringify({ idToken }) }),
@@ -84,7 +70,7 @@ export const api = {
     request('/customers/me/contact-change/request', { method: 'POST', body: JSON.stringify({ newIdentifier }) }),
   confirmContactChange: (newIdentifier: string, code: string) =>
     request('/customers/me/contact-change/confirm', { method: 'POST', body: JSON.stringify({ newIdentifier, code }) }),
-   listProducts: (category?: string) => request(`/products?take=500${category ? `&category=${category}` : ''}`),
+  listProducts: (category?: string) => request(`/products?take=500${category ? `&category=${category}` : ''}`),
   listSupplementBrands: () => request('/supplements'),
   adminListSupplements: () => request('/admin/supplements'),
   adminSupplementUploadSignature: () => request('/admin/supplements/upload-signature'),
@@ -139,6 +125,9 @@ export const api = {
   posCreateSale: (payload: unknown) => request('/admin/pos/orders', { method: 'POST', body: JSON.stringify(payload) }),
   posBillableChallenges: (customerId: string) => request(`/admin/pos/customers/${customerId}/billable-challenges`),
   posAvailableRedemptions: (customerId: string) => request(`/admin/pos/customers/${customerId}/redemptions`),
+  posCustomerWallet: (customerId: string) => request(`/admin/pos/customers/${customerId}/wallet`),
+  posWalletPackages: () => request('/admin/pos/wallet-packages'),
+  posSubscribeCustomer: (customerId: string, packageId: string) => request(`/admin/pos/customers/${customerId}/subscribe`, { method: 'POST', body: JSON.stringify({ packageId }) }),
   adminOrders: (status?: string) => request(`/admin/orders${status ? `?status=${status}` : ''}`),
   adminDownloadInvoicePdf: (orderId: string, orderNumber?: string) =>
     downloadFile(`/admin/orders/${orderId}/invoice.pdf`, `receipt-${orderNumber ?? orderId.slice(0, 8)}.pdf`),
@@ -239,7 +228,7 @@ export const api = {
     const qs = new URLSearchParams(params as any).toString();
     return request(`/admin/audit-log${qs ? `?${qs}` : ''}`);
   },
-      myWalletTransactions: () => request('/customers/me/wallet-transactions'),
+  myWalletTransactions: () => request('/customers/me/wallet-transactions'),
   myWalletOverview: () => request('/customers/me/wallet'),
   listWalletPackages: () => request('/customers/wallet-packages'),
   purchaseWalletPackage: (packageId: string) => request(`/customers/me/wallet-packages/${packageId}/purchase`, { method: 'POST' }),
@@ -250,8 +239,7 @@ export const api = {
   adminWalletSubscriptions: () => request('/admin/wallet-subscriptions'),
   adminWalletDailyBilling: (days?: number) => request(`/admin/wallet-daily-billing${days ? `?days=${days}` : ''}`),
   adminWalletAlerts: () => request('/admin/wallet-alerts'),
-  posCustomerWallet: (customerId: string) => request(`/admin/pos/customers/${customerId}/wallet`),
-   mySessions: () => request('/auth/sessions'),
+  mySessions: () => request('/auth/sessions'),
   revokeSession: (id: string) => request(`/auth/sessions/${id}`, { method: 'DELETE' }),
   getVapidPublicKey: () => request('/notifications/push/vapid-public-key'),
   subscribePush: (subscription: unknown) => request('/notifications/push/subscribe', { method: 'POST', body: JSON.stringify(subscription) }),
@@ -344,6 +332,8 @@ export const api = {
     request(`/delivery/${deliveryOrderId}/location`, { method: 'PATCH', body: JSON.stringify({ lat, lng }) }),
   createCashCollectionPaymentLink: (deliveryOrderId: string) =>
     request(`/delivery/${deliveryOrderId}/cash-collection/upi`, { method: 'POST' }),
+  confirmCashCollected: (deliveryOrderId: string) =>
+    request(`/delivery/${deliveryOrderId}/cash-collection/confirm`, { method: 'POST' }),
 
   // Shop status
   getShopStatus: () => request('/shop/status'),
