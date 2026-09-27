@@ -6,6 +6,7 @@ import { api } from '@/lib/api';
 import { siteConfig } from '@/lib/siteConfig';
 import { payForOrder } from '@/lib/razorpay';
 import { useCart } from '@/lib/cart-context';
+import { useOrderUpdates } from '@/lib/useOrderUpdates';
 import { useRouter } from 'next/navigation';
 
 interface OrderItem {
@@ -26,6 +27,13 @@ interface Order {
   createdAt: string;
   items: OrderItem[];
   payment: { method: string; status: string } | null;
+  deliveryOrder: {
+    id: string;
+    deliveryOtp: string | null;
+    address: string | null;
+    deliveryPersonId: string | null;
+    deliveryPerson: { name: string } | null;
+  } | null;
 }
 
 const RATING_TAGS = ['Fast', 'Polite', 'Professional', 'Good handling'];
@@ -79,6 +87,14 @@ export default function OrdersPage() {
   };
 
   useEffect(load, []);
+
+  // Live status updates — previously this page only ever showed
+  // whatever was true at the moment it first loaded; a customer had
+  // to manually refresh (or leave and come back) to see a status
+  // change, a rider being assigned, or their delivery OTP appear.
+  useOrderUpdates((event) => {
+    setOrders((prev) => prev.map((o) => (o.id === event.orderId ? { ...o, status: event.status } : o)));
+  });
 
   // Handles both paths from a push notification action button
   // ("Don't ring the bell" / "Leave at door"): a message relayed from
@@ -146,6 +162,20 @@ export default function OrdersPage() {
             </div>
             <p className="mb-1 text-xs text-brand-body">{new Date(order.createdAt).toLocaleString()}</p>
             <p className="mb-3 text-sm font-bold text-brand-black">₹{order.totalRs}</p>
+
+            {order.fulfillmentType === 'DELIVERY' &&
+              order.deliveryOrder?.deliveryOtp &&
+              order.status !== 'DELIVERED' &&
+              order.status !== 'CANCELLED' &&
+              order.status !== 'FAILED' && (
+                <div className="mb-3 rounded-xl border-2 border-brand-primary bg-brand-bg p-3">
+                  <p className="text-xs font-bold uppercase tracking-wide text-brand-body">Show this code to your rider</p>
+                  <p className="text-2xl font-extrabold tracking-widest text-brand-primary">{order.deliveryOrder.deliveryOtp}</p>
+                  {order.deliveryOrder.deliveryPerson && (
+                    <p className="mt-1 text-xs text-brand-body">🛵 {order.deliveryOrder.deliveryPerson.name} is your delivery partner</p>
+                  )}
+                </div>
+              )}
 
             {(order.status === 'DELIVERED' || order.status === 'CANCELLED') && (
               <button
@@ -453,9 +483,6 @@ function TipForm({ orderId, onDone, onClose }: { orderId: string; onDone: (msg: 
         await api.tipDeliveryPerson(orderId, amount);
         onDone('Thank you — your tip has been sent! 💚');
       } else {
-        // A real payment link, not wallet debit — the tip is applied
-        // to the delivery the moment Razorpay confirms it was paid,
-        // same as any other Razorpay payment in this app.
         const link = await api.createTipPaymentLink(orderId, amount);
         setUpiLink(link);
       }
@@ -601,7 +628,7 @@ function BillView({ orderId, orderNumber }: { orderId: string; orderNumber: stri
         <div className="flex justify-between font-bold text-brand-black"><span>Total</span><span>₹{invoice.totalRs}</span></div>
       </div>
       <div className="flex flex-wrap gap-2">
-        <a
+        
           href={`https://wa.me/?text=${whatsappText}`}
           target="_blank"
           rel="noreferrer"
