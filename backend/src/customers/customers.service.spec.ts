@@ -244,7 +244,7 @@ describe('CustomersService.deleteMyAccount', () => {
         address: null,
         gymName: null,
         goal: null,
-        dietaryPreference: null,
+        dietaryPreference: [],
         dailyProteinGoalG: null,
         dailyCalorieGoal: null,
         marketingOptIn: false,
