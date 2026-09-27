@@ -613,13 +613,93 @@ export class AdminService {
     });
   }
 
-  async listCategories() {
+   async listCategories() {
     return this.prisma.productCategory.findMany({ orderBy: { name: 'asc' } });
   }
 
-  async createCategory(data: { name: string; slug: string }) {
-    return this.prisma.productCategory.create({ data });
+  // ---- Wallet Packages ----
+
+  async listWalletPackages() {
+    return this.prisma.walletPackage.findMany({ orderBy: { sortOrder: 'asc' } });
   }
+
+  async createWalletPackage(data: { name: string; priceRs: number; creditRs: number; packageFeeRs?: number; validityDays: number; sortOrder?: number }) {
+    if (data.priceRs <= 0 || data.creditRs <= 0) throw new BadRequestException('Price and credit must be positive');
+    if (data.validityDays <= 0) throw new BadRequestException('Validity days must be positive');
+    if (data.packageFeeRs !== undefined && data.packageFeeRs < 0) throw new BadRequestException('Package fee cannot be negative');
+    return this.prisma.walletPackage.create({ data });
+  }
+
+  async updateWalletPackage(id: string, data: Partial<{ name: string; priceRs: number; creditRs: number; validityDays: number; isActive: boolean; sortOrder: number }>) {
+    return this.prisma.walletPackage.update({ where: { id }, data });
+  }
+
+  async deleteWalletPackage(id: string) {
+    return this.prisma.walletPackage.delete({ where: { id } });
+  }
+
+  /** Every customer with a wallet — active subscribers, for the admin's own visibility. */
+  async listWalletSubscriptions() {
+    const wallets = await this.prisma.wallet.findMany({
+      where: { activePackageName: { not: null } },
+      include: { customer: { select: { id: true, name: true } } },
+      orderBy: { updatedAt: 'desc' },
+    });
+    return wallets.map((w: any) => ({
+      customerId: w.customer.id,
+      customerName: w.customer.name,
+      packageName: w.activePackageName,
+      balanceRs: w.balanceRs,
+      expiresAt: w.expiresAt,
+      isExpired: w.expiresAt ? new Date(w.expiresAt) < new Date() : false,
+    }));
+  }
+
+  /** Real, persisted daily billing rows — see DailyBillingRecord and WalletService.sendDailyInvoices. */
+  async listDailyBilling(days = 30) {
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    return this.prisma.dailyBillingRecord.findMany({
+      where: { billDate: { gte: since } },
+      include: { customer: { select: { name: true } } },
+      orderBy: { billDate: 'desc' },
+    });
+  }
+
+  /**
+   * Three real conditions worth an admin's attention, computed live
+   * rather than stored — a wallet at/under the configured threshold,
+   * a package expiring within 3 days, or one that's already expired
+   * with balance still sitting unused.
+   */
+  async listWalletAlerts() {
+    const rules = await this.prisma.businessRuleSettings.findUnique({ where: { id: 'default' } });
+    const threshold = rules?.lowBalanceThresholdRs ?? 300;
+    const in3Days = new Date();
+    in3Days.setDate(in3Days.getDate() + 3);
+    const now = new Date();
+
+    const wallets = await this.prisma.wallet.findMany({
+      where: { activePackageName: { not: null } },
+      include: { customer: { select: { id: true, name: true } } },
+    });
+
+    return wallets
+      .map((w: any) => {
+        const balanceRs = Number(w.balanceRs);
+        const expiresAt = w.expiresAt ? new Date(w.expiresAt) : null;
+        let alertType: 'LOW_BALANCE' | 'EXPIRING_SOON' | 'EXPIRED' | null = null;
+        if (expiresAt && expiresAt < now) alertType = 'EXPIRED';
+        else if (expiresAt && expiresAt <= in3Days) alertType = 'EXPIRING_SOON';
+        else if (balanceRs <= threshold) alertType = 'LOW_BALANCE';
+        return alertType
+          ? { customerId: w.customer.id, customerName: w.customer.name, packageName: w.activePackageName, balanceRs: w.balanceRs, expiresAt: w.expiresAt, alertType }
+          : null;
+      })
+      .filter((a: any): a is NonNullable<typeof a> => a !== null);
+  }
+
+  async createCategory(data: { name: string; slug: string }) {
 
   /**
    * Bulk menu import — the whole point is letting a full menu (many
