@@ -177,7 +177,7 @@ export class AiService {
 CUSTOMER CONTEXT (use this to personalize every answer):
 - Name: ${customer.name}
 - Goal: ${customer.goal ?? 'not set'}
-- Dietary preference: ${customer.dietaryPreference ?? 'not set'}
+- Dietary preference: ${customer.dietaryPreference.length ? customer.dietaryPreference.join(', ') : 'not set'}
 - Allergies: ${allergenNames.length ? allergenNames.join(', ') : 'none recorded'}
 - Daily protein target: ${proteinGoal !== null ? `${proteinGoal}g` : 'not set'}
 - Protein consumed today: ${proteinSoFar}g
