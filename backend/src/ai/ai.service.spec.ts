@@ -7,7 +7,7 @@ function makePrisma(overrides: Partial<any> = {}) {
       findUniqueOrThrow: jest.fn().mockResolvedValue({
         name: 'Priya',
         goal: 'MUSCLE_STRENGTH',
-        dietaryPreference: 'VEG',
+        dietaryPreference: ['VEG'],
         dailyProteinGoalG: 140,
         allergies: [],
       }),
