@@ -49,6 +49,11 @@ export class DeliveryController {
     return this.delivery.createCashCollectionPaymentLink(req.user.deliveryPersonId, deliveryOrderId);
   }
 
+  @Post(':deliveryOrderId/cash-collection/confirm')
+  collectCash(@Req() req: any, @Param('deliveryOrderId') deliveryOrderId: string) {
+    return this.delivery.collectCash(req.user.deliveryPersonId, deliveryOrderId);
+  }
+
   @Patch(':deliveryOrderId/location')
   updateLocation(
     @Req() req: any,
