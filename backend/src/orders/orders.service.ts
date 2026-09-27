@@ -245,9 +245,6 @@ export class OrdersService {
       const challengeFeeRs = input.extraChargeRs ?? 0;
       if (challengeFeeRs < 0) throw new BadRequestException('Challenge fee cannot be negative');
 
-      // Packaging surcharge for takeaway/pickup only — never DINE_IN
-      // (no packaging involved) or DELIVERY (already has its own fee).
-      // 0 if the admin has disabled it in Business Rules.
       const rulesForFees = await this.businessRules.getRules();
       const takeawayFeeRs = input.fulfillmentType === 'PICKUP' && rulesForFees.takeawayFeeEnabled ? rulesForFees.takeawayFeeRs : 0;
 
@@ -413,43 +410,6 @@ export class OrdersService {
           .catch(() => undefined);
       }
 
-      // Panda Wallet order receipt — a dedicated email, distinct from
-      // the generic invoice, specifically because a wallet order's
-      // customer cares about something a normal invoice doesn't show
-      // at all: what their balance was before/after, and how much
-      // longer their package stays valid.
-      if (walletDebitInfo) {
-        this.prisma.customer
-          .findUnique({ where: { id: input.customerId }, include: { user: true } })
-          .then(async (customer: { name: string; user: { email: string | null } } | null) => {
-            if (!customer?.user?.email) return;
-            const wallet = await this.prisma.wallet.findUnique({ where: { customerId: input.customerId } });
-            const itemLines = order.items
-              .map((i: { quantity: number; unitPriceRs: unknown }) => `<li>${i.quantity} x item — ₹${(Number(i.unitPriceRs) * i.quantity).toFixed(2)}</li>`)
-              .join('');
-            await this.email.send({
-              to: customer.user.email,
-              subject: `Protein Panda — Wallet Order #${order.orderNumber}`,
-              html: `
-                <h2>Protein Panda</h2>
-                <p>Invoice: ${order.orderNumber} — ${new Date().toLocaleString('en-IN')}</p>
-                <ul>${itemLines}</ul>
-                <p>Total order amount: ₹${order.totalRs}</p>
-                <p>Wallet balance before order: ₹${walletDebitInfo.balanceBeforeRs.toFixed(2)}</p>
-                <p>Amount deducted: ₹${(walletDebitInfo.balanceBeforeRs - walletDebitInfo.balanceAfterRs).toFixed(2)}</p>
-                <p>Remaining wallet balance: ₹${walletDebitInfo.balanceAfterRs.toFixed(2)}</p>
-                <p>Payment method: Wallet</p>
-                ${wallet?.activePackageName ? `<p>Package: ${wallet.activePackageName}</p>` : ''}
-                ${wallet?.expiresAt ? `<p>Wallet expiry date: ${new Date(wallet.expiresAt).toLocaleDateString('en-IN')}</p>` : ''}
-              `,
-            });
-          })
-          .catch(() => undefined);
-      }
-
-      // Low-balance warning — deliberately never blocks the order that
-      // crosses the threshold; it's informational only, sent once at
-      // the exact moment the balance first drops under it.
       if (walletDebitInfo?.crossedLowBalanceThreshold) {
         this.prisma.customer
           .findUnique({ where: { id: input.customerId }, include: { user: true } })
@@ -537,7 +497,21 @@ export class OrdersService {
       take,
       ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
       orderBy: { createdAt: 'desc' },
-      include: { items: { include: { product: true, addons: { include: { addon: true } } } }, payment: true },
+      include: {
+        items: { include: { product: true, addons: { include: { addon: true } } } },
+        payment: true,
+        deliveryOrder: {
+          select: {
+            id: true,
+            deliveryOtp: true,
+            address: true,
+            deliveryPersonId: true,
+            deliveryPerson: { select: { name: true } },
+            lastLat: true,
+            lastLng: true,
+          },
+        },
+      },
     });
   }
 
