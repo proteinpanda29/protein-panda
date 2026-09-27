@@ -324,7 +324,7 @@ describe('CustomersService.getDashboard — profile fields for account settings'
     prisma.customer.findUniqueOrThrow.mockResolvedValue({
       name: 'Priya',
       goal: 'MUSCLE_STRENGTH',
-      dietaryPreference: 'VEG',
+      dietaryPreference: ['VEG'],
       dailyProteinGoalG: 140,
       dailyCalorieGoal: 2200,
       gymName: 'FitZone',
@@ -337,7 +337,7 @@ describe('CustomersService.getDashboard — profile fields for account settings'
     const result = await service.getDashboard('cust-1');
 
     expect(result.name).toBe('Priya');
-    expect(result.dietaryPreference).toBe('VEG');
+    expect(result.dietaryPreference).toEqual(['VEG']);
     expect(result.marketingOptIn).toBe(true);
     expect(result.orderUpdatesOptIn).toBe(false);
   });
