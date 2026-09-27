@@ -8,6 +8,9 @@ export class WalletCronService {
 
   constructor(private wallet: WalletService) {}
 
+  // Late at night so a full day's orders are captured before the
+  // invoice is generated — matches the finalized policy's "automatic
+  // daily billing statement" for every active subscription customer.
   @Cron('55 23 * * *')
   async handleDailyInvoices() {
     const result = await this.wallet.sendDailyInvoices();
