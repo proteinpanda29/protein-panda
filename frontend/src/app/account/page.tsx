@@ -8,7 +8,7 @@ import { PushNotificationToggle } from '@/components/PushNotificationToggle';
 interface Dashboard {
   name: string;
   goal: string | null;
-  dietaryPreference: string | null;
+  dietaryPreference: string[];
   dailyProteinGoalG: string | null;
   dailyCalorieGoal: number | null;
   gymName: string | null;
@@ -18,6 +18,17 @@ interface Dashboard {
   marketingOptIn: boolean;
   orderUpdatesOptIn: boolean;
 }
+
+const DIETARY_OPTIONS = ['VEG', 'NON_VEG', 'EGGETARIAN'] as const;
+
+export default function AccountPage() {
+  const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const [name, setName] = useState('');
+  const [goal, setGoal] = useState('');
+  const [dietaryPreference, setDietaryPreference] = useState<string[]>([]);
 
 export default function AccountPage() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
@@ -50,7 +61,7 @@ export default function AccountPage() {
         setDashboard(d);
         setName(d.name ?? '');
         setGoal(d.goal ?? '');
-        setDietaryPreference(d.dietaryPreference ?? '');
+        setDietaryPreference(d.dietaryPreference ?? []);
         setDailyProteinGoalG(d.dailyProteinGoalG ?? '');
         setDailyCalorieGoal(d.dailyCalorieGoal ? String(d.dailyCalorieGoal) : '');
         setGymName(d.gymName ?? '');
@@ -68,7 +79,7 @@ export default function AccountPage() {
       await api.updateMyProfile({
         name,
         goal: goal || undefined,
-        dietaryPreference: dietaryPreference || undefined,
+        dietaryPreference,
         dailyProteinGoalG: dailyProteinGoalG ? Number(dailyProteinGoalG) : undefined,
         dailyCalorieGoal: dailyCalorieGoal ? Number(dailyCalorieGoal) : undefined,
         gymName: gymName || undefined,
@@ -160,18 +171,30 @@ export default function AccountPage() {
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-brand-black">Profile</h2>
         <div className="flex flex-col gap-3">
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="rounded-lg border border-brand-grey px-3 py-2 text-sm" />
-          <select value={goal} onChange={(e) => setGoal(e.target.value)} className="rounded-lg border border-brand-grey px-3 py-2 text-sm">
+                   <select value={goal} onChange={(e) => setGoal(e.target.value)} className="rounded-lg border border-brand-grey px-3 py-2 text-sm">
             <option value="">Goal — not set</option>
             <option value="WEIGHT_LOSS">Weight loss</option>
             <option value="MUSCLE_STRENGTH">Muscle & strength</option>
             <option value="GENERAL_FITNESS">General fitness</option>
           </select>
-          <select value={dietaryPreference} onChange={(e) => setDietaryPreference(e.target.value)} className="rounded-lg border border-brand-grey px-3 py-2 text-sm">
-            <option value="">Dietary preference — not set</option>
-            <option value="VEG">Vegetarian</option>
-            <option value="NON_VEG">Non-vegetarian</option>
-            <option value="VEGAN">Vegan</option>
-          </select>
+          <div className="rounded-lg border border-brand-grey px-3 py-2 text-sm">
+            <p className="mb-2 text-xs font-bold uppercase tracking-wide text-brand-body">Dietary preference (choose any that apply)</p>
+            <div className="flex flex-wrap gap-3">
+              {DIETARY_OPTIONS.map((opt) => (
+                <label key={opt} className="flex items-center gap-1.5 text-sm text-brand-black">
+                  <input
+                    type="checkbox"
+                    checked={dietaryPreference.includes(opt)}
+                    onChange={(e) =>
+                      setDietaryPreference((prev) => (e.target.checked ? [...prev, opt] : prev.filter((p) => p !== opt)))
+                    }
+                    className="h-4 w-4 accent-brand-primary"
+                  />
+                  {opt === 'VEG' ? 'Vegetarian' : opt === 'NON_VEG' ? 'Non-vegetarian' : 'Eggetarian'}
+                </label>
+              ))}
+            </div>
+          </div>
           <input type="number" value={dailyProteinGoalG} onChange={(e) => setDailyProteinGoalG(e.target.value)} placeholder="Daily protein goal (g)" className="rounded-lg border border-brand-grey px-3 py-2 text-sm" />
           <input type="number" value={dailyCalorieGoal} onChange={(e) => setDailyCalorieGoal(e.target.value)} placeholder="Daily calorie goal" className="rounded-lg border border-brand-grey px-3 py-2 text-sm" />
           <input value={gymName} onChange={(e) => setGymName(e.target.value)} placeholder="Gym (optional — for gym leaderboard)" className="rounded-lg border border-brand-grey px-3 py-2 text-sm" />
