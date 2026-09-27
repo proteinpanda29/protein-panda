@@ -1326,6 +1326,17 @@ model Wallet {
 
 model WalletPackage {
   id           String   @id @default(uuid())
+  name         String
+  priceRs      Decimal  @db.Decimal(10, 2)
+  creditRs     Decimal  @db.Decimal(10, 2)
+  validityDays Int
+  packageFeeRs Decimal  @db.Decimal(10, 2) @default(0)
+  isActive     Boolean  @default(true)
+  sortOrder    Int      @default(0)
+}
+
+model WalletPackage {
+  id           String   @id @default(uuid())
   name         String   // "Weekly Basic", "Monthly Pro"
   priceRs      Decimal  @db.Decimal(10, 2)
   creditRs     Decimal  @db.Decimal(10, 2)
