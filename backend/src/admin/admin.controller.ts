@@ -188,13 +188,55 @@ export class AdminController {
     return this.admin.listAllProducts();
   }
 
-  @Get('products/:id')
+  @Get('categories')
   @Departments(StaffDepartment.SALES)
-  productDetail(@Param('id') id: string) {
-    return this.admin.getProductDetail(id);
+  categories() {
+    return this.admin.listCategories();
   }
 
-  @Get('categories')
+  @Get('wallet-packages')
+  @Departments(StaffDepartment.SALES)
+  walletPackages() {
+    return this.admin.listWalletPackages();
+  }
+
+  @Post('wallet-packages')
+  @Departments(StaffDepartment.SALES)
+  createWalletPackage(@Body() body: any) {
+    return this.admin.createWalletPackage(body);
+  }
+
+  @Patch('wallet-packages/:id')
+  @Departments(StaffDepartment.SALES)
+  updateWalletPackage(@Param('id') id: string, @Body() body: any) {
+    return this.admin.updateWalletPackage(id, body);
+  }
+
+  @Delete('wallet-packages/:id')
+  @Departments(StaffDepartment.SALES)
+  deleteWalletPackage(@Param('id') id: string) {
+    return this.admin.deleteWalletPackage(id);
+  }
+
+  @Get('wallet-subscriptions')
+  @Departments(StaffDepartment.SALES)
+  walletSubscriptions() {
+    return this.admin.listWalletSubscriptions();
+  }
+
+  @Get('wallet-daily-billing')
+  @Departments(StaffDepartment.SALES)
+  walletDailyBilling(@Query('days') days?: string) {
+    return this.admin.listDailyBilling(days ? Number(days) : undefined);
+  }
+
+  @Get('wallet-alerts')
+  @Departments(StaffDepartment.SALES)
+  walletAlerts() {
+    return this.admin.listWalletAlerts();
+  }
+
+  @Post('categories')
   @Departments(StaffDepartment.SALES)
   categories() {
     return this.admin.listCategories();
