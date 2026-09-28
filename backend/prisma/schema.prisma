@@ -1351,8 +1351,26 @@ model WalletSubscription {
   source          String   @default("ONLINE")
   createdByUserId String?
   createdAt       DateTime @default(now())
+  historyEntries  WalletHistoryEntry[]
 
   @@index([customerId, startedAt])
+}
+
+/// A past purchase the shop typed in by hand for a subscriber.
+model WalletHistoryEntry {
+  id              String             @id @default(uuid())
+  subscriptionId  String
+  subscription    WalletSubscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+  customerId      String
+  entryDate       DateTime           @db.Date
+  items           Json
+  amountRs        Decimal            @db.Decimal(10, 2)
+  note            String?
+  createdByUserId String?
+  createdAt       DateTime           @default(now())
+
+  @@index([customerId, entryDate])
+  @@index([subscriptionId])
 }
 
 enum WalletTransactionType {
