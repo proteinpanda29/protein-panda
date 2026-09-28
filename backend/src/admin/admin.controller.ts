@@ -238,12 +238,6 @@ export class AdminController {
 
   @Post('categories')
   @Departments(StaffDepartment.SALES)
-  categories() {
-    return this.admin.listCategories();
-  }
-
-  @Post('categories')
-  @Departments(StaffDepartment.SALES)
   createCategory(@Body() body: { name: string; slug: string }) {
     return this.admin.createCategory(body);
   }
