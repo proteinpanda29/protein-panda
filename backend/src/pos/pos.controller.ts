@@ -35,14 +35,24 @@ export class PosController {
   }
 
   /**
-   * Registers a subscription paid in cash/card at the counter —
-   * skips Razorpay entirely (payment was already collected in person)
-   * and goes straight to crediting the wallet, exactly as if the
-   * online purchase flow had just been confirmed by the webhook.
+   * Registers a subscription paid in cash/card at the counter — skips
+   * Razorpay entirely (payment was already collected in person). Body can
+   * pick a catalog package, override any of its fields, or describe a
+   * fully custom plan (name, price, fee, credit, days).
    */
   @Post('customers/:id/subscribe')
-  subscribeCustomer(@Param('id') id: string, @Body('packageId') packageId: string) {
-    return this.wallet.confirmPackagePurchase(id, packageId);
+  subscribeCustomer(@Req() req: any, @Param('id') id: string, @Body() body: any) {
+    return this.wallet.registerCounterSubscription(id, body ?? {}, req.user.userId);
+  }
+
+  @Get('customers/:id/subscription')
+  customerSubscription(@Param('id') id: string) {
+    return this.wallet.getSubscriptionStatement(id);
+  }
+
+  @Get('wallet-subscribers')
+  walletSubscribers() {
+    return this.wallet.listSubscribers();
   }
 
   @Get('customers/:id/redemptions')
