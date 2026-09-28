@@ -7,6 +7,7 @@ import { api } from '@/lib/api';
 const MORE_LINKS = [
   { href: '/favourites', label: 'Favourites' },
   { href: '/membership', label: 'Membership' },
+  { href: '/wallet', label: 'My Subscription' },
   { href: '/report', label: 'Monthly Report' },
   { href: '/games', label: 'Games' },
   { href: '/rewards', label: 'Rewards' },
@@ -50,6 +51,7 @@ export function CustomerNavLinks() {
           version put all 10 links in a single row with no grouping. */}
       <a href="/menu" className="hover:text-brand-accent">Order</a>
       <a href="/orders" className="hover:text-brand-accent">My Orders</a>
+      <a href="/wallet" className="hover:text-brand-accent">My Subscription</a>
       <a href="/nutrition" className="hover:text-brand-accent">My Nutrition</a>
       <a href="/nutrition-guide" className="hover:text-brand-accent">Nutrition Guide</a>
       <a href="/games-info" className="hover:text-brand-accent">Challenges</a>
