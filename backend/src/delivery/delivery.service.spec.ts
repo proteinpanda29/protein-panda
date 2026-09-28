@@ -341,3 +341,64 @@ describe('DeliveryService.createCashCollectionPaymentLink', () => {
     await expect(service.createCashCollectionPaymentLink('rider-1', 'delivery-1')).rejects.toThrow(/already been paid/i);
   });
 });
+
+describe('DeliveryService.collectCash', () => {
+  it('marks the payment PAID and grants purchase rewards, for a valid cash order assigned to this rider', async () => {
+    const { service, prisma, orders } = makeHarness();
+    prisma.deliveryOrder.findUniqueOrThrow.mockResolvedValue({
+      id: 'delivery-1',
+      deliveryPersonId: 'rider-1',
+      order: { id: 'order-1', customerId: 'cust-1', totalProteinG: 30, totalRs: 149, payment: { id: 'pay-1', method: 'CASH', status: 'PENDING' } },
+    });
+
+    const result = await service.collectCash('rider-1', 'delivery-1');
+
+    expect(prisma.payment.update).toHaveBeenCalledWith({ where: { id: 'pay-1' }, data: { status: 'PAID', paidAt: expect.any(Date) } });
+    expect(orders.grantOrderRewards).toHaveBeenCalledWith(prisma, 'order-1', 'cust-1', 30, 149);
+    expect(result).toEqual({ orderId: 'order-1', paid: true });
+  });
+
+  it('refuses a delivery order that is not assigned to this rider', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.deliveryOrder.findUniqueOrThrow.mockResolvedValue({
+      id: 'delivery-1',
+      deliveryPersonId: 'someone-else',
+      order: { id: 'order-1', payment: { id: 'pay-1', method: 'CASH', status: 'PENDING' } },
+    });
+
+    await expect(service.collectCash('rider-1', 'delivery-1')).rejects.toThrow(/not assigned to you/i);
+  });
+
+  it('refuses an order that is not a cash payment', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.deliveryOrder.findUniqueOrThrow.mockResolvedValue({
+      id: 'delivery-1',
+      deliveryPersonId: 'rider-1',
+      order: { id: 'order-1', payment: { id: 'pay-1', method: 'UPI', status: 'PENDING' } },
+    });
+
+    await expect(service.collectCash('rider-1', 'delivery-1')).rejects.toThrow(/not a cash payment/i);
+  });
+
+  it('refuses an order that has already been marked paid', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.deliveryOrder.findUniqueOrThrow.mockResolvedValue({
+      id: 'delivery-1',
+      deliveryPersonId: 'rider-1',
+      order: { id: 'order-1', payment: { id: 'pay-1', method: 'CASH', status: 'PAID' } },
+    });
+
+    await expect(service.collectCash('rider-1', 'delivery-1')).rejects.toThrow(/already marked as paid/i);
+  });
+
+  it('refuses an order with no payment record at all', async () => {
+    const { service, prisma } = makeHarness();
+    prisma.deliveryOrder.findUniqueOrThrow.mockResolvedValue({
+      id: 'delivery-1',
+      deliveryPersonId: 'rider-1',
+      order: { id: 'order-1', payment: null },
+    });
+
+    await expect(service.collectCash('rider-1', 'delivery-1')).rejects.toThrow(/no payment record/i);
+  });
+});
