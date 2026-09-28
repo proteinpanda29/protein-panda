@@ -45,7 +45,9 @@ const navItems: { label: string; href: string; departments?: (string | null)[] }
   { label: 'AI Safety', href: '/admin/ai-safety', departments: [null] },
   { label: 'Staff Accounts', href: '/admin/staff', departments: [null] },
   { label: 'Shop Settings', href: '/admin/settings', departments: [null] },
-  { label: 'Business Rules', href: '/admin/business-rules', departments: [null] },
+    { label: 'Business Rules', href: '/admin/business-rules', departments: [null] },
+  { label: 'Panda Wallet Packages', href: '/admin/wallet-packages', departments: ['SALES'] },
+  { label: 'Subscription Counter', href: '/admin/subscription-pos', departments: ['SALES'] },
   { label: 'QR Codes', href: '/admin/qr-codes', departments: [null] },
   { label: 'Audit Log', href: '/admin/audit-log', departments: [null] },
 ];
