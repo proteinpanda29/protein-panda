@@ -127,7 +127,15 @@ export const api = {
   posAvailableRedemptions: (customerId: string) => request(`/admin/pos/customers/${customerId}/redemptions`),
   posCustomerWallet: (customerId: string) => request(`/admin/pos/customers/${customerId}/wallet`),
   posWalletPackages: () => request('/admin/pos/wallet-packages'),
-  posSubscribeCustomer: (customerId: string, packageId: string) => request(`/admin/pos/customers/${customerId}/subscribe`, { method: 'POST', body: JSON.stringify({ packageId }) }),
+  posSubscribeCustomer: (customerId: string, payload: unknown) =>    
+    request(`/admin/pos/customers/${customerId}/subscribe`, { method: 'POST', body: JSON.stringify(typeof payload === 'string' ? { packageId: payload } : payload) }),   
+  posCustomerSubscription: (customerId: string) => request(`/admin/pos/customers/${customerId}/subscription`), 
+  posWalletSubscribers: () => request('/admin/pos/wallet-subscribers'),  
+  posUpdateSubscription: (customerId: string, payload: unknown) => request(`/admin/pos/customers/${customerId}/subscription`, { method: 'PATCH', body: JSON.stringify(payload) }),  
+  posAddHistory: (customerId: string, payload: unknown) => request(`/admin/pos/customers/${customerId}/subscription/history`, { method: 'POST', body: JSON.stringify(payload) }),   
+  posUpdateHistory: (entryId: string, payload: unknown) => request(`/admin/pos/subscription-history/${entryId}`, { method: 'PATCH', body: JSON.stringify(payload) }),  
+  posDeleteHistory: (entryId: string) => request(`/admin/pos/subscription-history/${entryId}`, { method: 'DELETE' }),  
+  mySubscription: () => request('/customers/me/subscription'),
   adminOrders: (status?: string) => request(`/admin/orders${status ? `?status=${status}` : ''}`),
   adminDownloadInvoicePdf: (orderId: string, orderNumber?: string) =>
     downloadFile(`/admin/orders/${orderId}/invoice.pdf`, `receipt-${orderNumber ?? orderId.slice(0, 8)}.pdf`),
