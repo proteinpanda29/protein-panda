@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 import { WalletService } from './wallet.service';
 
 @Injectable()
@@ -8,10 +8,10 @@ export class WalletCronService {
 
   constructor(private wallet: WalletService) {}
 
-  // Late at night so a full day's orders are captured before the
-  // invoice is generated — matches the finalized policy's "automatic
-  // daily billing statement" for every active subscription customer.
-  @Cron('55 23 * * *')
+  // 11:55 pm shop time (India), not the server's clock, which runs on
+  // UTC. Late at night so a full day's orders are captured before the
+  // invoice is generated. Customers with no order that day get nothing.
+  @Cron('55 23 * * *', { timeZone: 'Asia/Kolkata' })
   async handleDailyInvoices() {
     const result = await this.wallet.sendDailyInvoices();
     if (result.invoicesSent > 0) {
