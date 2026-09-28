@@ -132,7 +132,6 @@ export default function AdminOrdersPage() {
 
     knownOrderIdsRef.current.add(event.orderId);
     load();
-    playNewOrderAlert();
 
     setNewOrderIds((prev) => {
       const next = new Set(prev);
