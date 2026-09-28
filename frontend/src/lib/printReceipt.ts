@@ -4,6 +4,9 @@ export interface ReceiptData {
   customerName: string;
   fulfillmentType?: string;
   totalRs: string | number;
+  subtotalRs?: string | number;
+  discountRs?: string | number;
+  discountReason?: string;
   items: { quantity: number; name: string; unitPriceRs?: number }[];
 }
 
@@ -99,8 +102,16 @@ export function printReceipt(data: ReceiptData) {
         <div class="meta-line"><span>Customer</span><span>${escapeHtml(data.customerName)}</span></div>
         ${data.fulfillmentType ? `<div class="meta-line"><span>Type</span><span>${escapeHtml(data.fulfillmentType)}</span></div>` : ''}
         <div class="divider"></div>
-        ${itemsHtml}
+               ${itemsHtml}
         <div class="divider"></div>
+        ${
+          data.discountRs && Number(data.discountRs) > 0
+            ? `
+          <div class="meta-line"><span>Subtotal</span><span>Rs ${data.subtotalRs ?? data.items.reduce((s, i) => s + (i.unitPriceRs ?? 0) * i.quantity, 0).toFixed(0)}</span></div>
+          <div class="meta-line"><span>Discount${data.discountReason ? ` (${escapeHtml(data.discountReason)})` : ''}</span><span>-Rs ${data.discountRs}</span></div>
+        `
+            : ''
+        }
         <div class="total-line"><span>TOTAL</span><span>Rs ${data.totalRs}</span></div>
         <div class="thank-you">Thank you for choosing us!</div>
       </body>
