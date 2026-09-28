@@ -632,7 +632,7 @@ function BillView({ orderId, orderNumber }: { orderId: string; orderNumber: stri
       </div>
       <div className="flex flex-wrap gap-2">
         
-          href={`https://wa.me/?text=${whatsappText}`}
+         <a href={`https://wa.me/?text=${whatsappText}`}
           target="_blank"
           rel="noreferrer"
           className="rounded-full bg-green-600 px-3 py-2 text-xs font-bold text-white hover:bg-green-500"
