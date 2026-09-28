@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../common/roles.guard';
 import { Roles } from '../common/roles.decorator';
 import { CustomersService } from './customers.service';
 import { AuthService } from '../auth/auth.service';
+import { WalletService } from './wallet.service';
 
 @Controller('customers')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -13,6 +14,7 @@ export class CustomersController {
   constructor(
     private customers: CustomersService,
     private auth: AuthService,
+    private wallet: WalletService,
   ) {}
 
   @Get('me/dashboard')
@@ -23,6 +25,21 @@ export class CustomersController {
   @Get('me/wallet-transactions')
   walletTransactions(@Req() req: any) {
     return this.customers.getWalletTransactions(req.user.customerId);
+  }
+
+  @Get('me/wallet')
+  walletOverview(@Req() req: any) {
+    return this.wallet.getWalletOverview(req.user.customerId);
+  }
+
+  @Get('wallet-packages')
+  walletPackages() {
+    return this.wallet.listPackages();
+  }
+
+  @Post('me/wallet-packages/:id/purchase')
+  purchaseWalletPackage(@Req() req: any, @Param('id') id: string) {
+    return this.wallet.purchasePackage(req.user.customerId, id);
   }
 
   @Patch('me/profile')
