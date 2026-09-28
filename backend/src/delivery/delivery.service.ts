@@ -9,10 +9,7 @@ import { PaymentsService } from '../payments/payments.service';
 // it is not a value in the OrderStatus enum, so it updates the DeliveryOrder
 // timestamp but does not touch Order.status. OUT_FOR_DELIVERY, ARRIVED, and
 // DELIVERED map directly onto OrderStatus and update both records.
-const ACTION_MAP: Record
-  string,
-  { deliveryField: 'pickedUpAt' | 'outForDeliveryAt' | 'arrivedAt' | 'deliveredAt'; orderStatus?: string }
-> = {
+const ACTION_MAP: Record<string, { deliveryField: 'pickedUpAt' | 'outForDeliveryAt' | 'arrivedAt' | 'deliveredAt'; orderStatus?: string }> = {
   PICKED_UP: { deliveryField: 'pickedUpAt' },
   OUT_FOR_DELIVERY: { deliveryField: 'outForDeliveryAt', orderStatus: 'OUT_FOR_DELIVERY' },
   ARRIVED: { deliveryField: 'arrivedAt', orderStatus: 'ARRIVED' },
