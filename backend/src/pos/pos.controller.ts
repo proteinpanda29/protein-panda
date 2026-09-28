@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { Role, StaffDepartment } from '@prisma/client';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../common/roles.guard';
@@ -48,6 +48,26 @@ export class PosController {
   @Get('customers/:id/subscription')
   customerSubscription(@Param('id') id: string) {
     return this.wallet.getSubscriptionStatement(id);
+  }
+
+  @Patch('customers/:id/subscription')
+  updateSubscription(@Param('id') id: string, @Body() body: any) {
+    return this.wallet.updateSubscription(id, body ?? {});
+  }
+
+  @Post('customers/:id/subscription/history')
+  addHistory(@Req() req: any, @Param('id') id: string, @Body() body: any) {
+    return this.wallet.addHistoryEntry(id, body, req.user.userId);
+  }
+
+  @Patch('subscription-history/:entryId')
+  updateHistory(@Param('entryId') entryId: string, @Body() body: any) {
+    return this.wallet.updateHistoryEntry(entryId, body ?? {});
+  }
+
+  @Delete('subscription-history/:entryId')
+  deleteHistory(@Param('entryId') entryId: string) {
+    return this.wallet.deleteHistoryEntry(entryId);
   }
 
   @Get('wallet-subscribers')
