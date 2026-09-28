@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma.service';
 import { RazorpayService } from '../payments/razorpay.service';
 import { BusinessRulesService } from '../common/business-rules.service';
@@ -54,6 +54,16 @@ export interface SubscriptionPlanInput {
   validityDays: number;
   source: 'ONLINE' | 'COUNTER';
   createdByUserId?: string;
+  /** YYYY-MM-DD on the shop's calendar; lets staff record a plan that actually began earlier. Defaults to today. */
+  startDate?: string;
+}
+
+const DATE_KEY = /^\d{4}-\d{2}-\d{2}$/;
+
+export interface HistoryItemInput {
+  name: string;
+  quantity: number;
+  amountRs: number;
 }
 
 @Injectable()
@@ -249,7 +259,10 @@ export class WalletService {
    */
   async activateSubscription(customerId: string, plan: SubscriptionPlanInput) {
     const now = new Date();
-    const startKey = shopDateKey(now);
+    const startKey = plan.startDate ?? shopDateKey(now);
+    // Started today: the moment of purchase. Started on an earlier day
+    // (recorded by staff): the very start of that day.
+    const startedAt = plan.startDate && plan.startDate !== shopDateKey(now) ? new Date(`${plan.startDate}T00:00:00+05:30`) : now;
     const endsAt = new Date(new Date(`${startKey}T23:59:59.999+05:30`).getTime() + (plan.validityDays - 1) * DAY_MS);
 
     return this.prisma.$transaction(async (tx: any) => {
@@ -274,7 +287,7 @@ export class WalletService {
           packageFeeRs: plan.packageFeeRs,
           creditRs: plan.creditRs,
           validityDays: plan.validityDays,
-          startedAt: now,
+          startedAt,
           endsAt,
           source: plan.source,
           createdByUserId: plan.createdByUserId,
@@ -290,7 +303,7 @@ export class WalletService {
    */
   async registerCounterSubscription(
     customerId: string,
-    input: { packageId?: string; planName?: string; priceRs?: number; packageFeeRs?: number; creditRs?: number; validityDays?: number },
+    input: { packageId?: string; planName?: string; priceRs?: number; packageFeeRs?: number; creditRs?: number; validityDays?: number; startDate?: string },
     createdByUserId?: string,
   ) {
     let base = { planName: '', priceRs: 0, packageFeeRs: 0, creditRs: 0, validityDays: 0 };
@@ -315,6 +328,7 @@ export class WalletService {
       validityDays: input.validityDays !== undefined ? Number(input.validityDays) : base.validityDays,
       source: 'COUNTER',
       createdByUserId,
+      startDate: input.startDate || undefined,
     };
 
     if (!plan.planName) throw new BadRequestException('A plan name is required');
@@ -325,7 +339,179 @@ export class WalletService {
       throw new BadRequestException('Days must be a whole number of at least 1');
     }
 
+    if (plan.startDate) {
+      if (!DATE_KEY.test(plan.startDate)) throw new BadRequestException('Start date must look like 2026-08-28');
+      const todayKey = shopDateKey(new Date());
+      if (plan.startDate > todayKey) throw new BadRequestException('The start date cannot be in the future');
+      const lastDay = new Date(new Date(`${plan.startDate}T23:59:59.999+05:30`).getTime() + (plan.validityDays - 1) * DAY_MS);
+      if (lastDay.getTime() < Date.now()) {
+        throw new BadRequestException('A plan that started on that date would already be over. Pick a start date inside the plan\'s days.');
+      }
+    }
+
     return this.activateSubscription(customerId, plan);
+  }
+
+  /**
+   * Staff correcting the customer's current plan: name, fee, price, days,
+   * start date, or the wallet credit itself (any change in credit adjusts
+   * the balance by the difference, and is recorded as a wallet entry).
+   */
+  async updateSubscription(
+    customerId: string,
+    patch: { planName?: string; priceRs?: number; packageFeeRs?: number; creditRs?: number; validityDays?: number; startDate?: string },
+  ) {
+    const sub: any = await this.prisma.walletSubscription.findFirst({ where: { customerId }, orderBy: { startedAt: 'desc' } });
+    if (!sub) throw new NotFoundException('This customer has no subscription to edit');
+
+    const planName = (patch.planName ?? sub.planName).trim();
+    const priceRs = patch.priceRs !== undefined ? Number(patch.priceRs) : Number(sub.priceRs);
+    const packageFeeRs = patch.packageFeeRs !== undefined ? Number(patch.packageFeeRs) : Number(sub.packageFeeRs);
+    const creditRs = patch.creditRs !== undefined ? Number(patch.creditRs) : Number(sub.creditRs);
+    const validityDays = patch.validityDays !== undefined ? Number(patch.validityDays) : sub.validityDays;
+
+    if (!planName) throw new BadRequestException('A plan name is required');
+    if (!(priceRs > 0) || !(creditRs > 0)) throw new BadRequestException('Price and wallet credit must be more than zero');
+    if (packageFeeRs < 0) throw new BadRequestException('Package/delivery fee cannot be negative');
+    if (!Number.isInteger(validityDays) || validityDays < 1) throw new BadRequestException('Days must be a whole number of at least 1');
+
+    let startedAt: Date = new Date(sub.startedAt);
+    if (patch.startDate) {
+      if (!DATE_KEY.test(patch.startDate)) throw new BadRequestException('Start date must look like 2026-08-28');
+      if (patch.startDate > shopDateKey(new Date())) throw new BadRequestException('The start date cannot be in the future');
+      startedAt = new Date(`${patch.startDate}T00:00:00+05:30`);
+    }
+    const startKey = shopDateKey(startedAt);
+    const endsAt = new Date(new Date(`${startKey}T23:59:59.999+05:30`).getTime() + (validityDays - 1) * DAY_MS);
+
+    return this.prisma.$transaction(async (tx: any) => {
+      const wallet = await tx.wallet.findUnique({ where: { customerId } });
+      const creditDelta = creditRs - Number(sub.creditRs);
+      if (wallet && creditDelta !== 0) {
+        if (Number(wallet.balanceRs) + creditDelta < 0) {
+          throw new BadRequestException('That credit is lower than what the customer has already spent');
+        }
+        await tx.wallet.update({ where: { id: wallet.id }, data: { balanceRs: { increment: creditDelta } } });
+        await tx.walletTransaction.create({
+          data: { walletId: wallet.id, amountRs: creditDelta, type: 'ADMIN_ADJUSTMENT', note: `Plan credit corrected by the shop (${Number(sub.creditRs)} to ${creditRs})` },
+        });
+      }
+      if (wallet) {
+        await tx.wallet.update({ where: { id: wallet.id }, data: { expiresAt: endsAt, activePackageName: planName } });
+      }
+      return tx.walletSubscription.update({
+        where: { id: sub.id },
+        data: { planName, priceRs, packageFeeRs, creditRs, validityDays, startedAt, endsAt },
+      });
+    });
+  }
+
+  private parseHistoryItems(items: unknown): { name: string; quantity: number; amountRs: number }[] {
+    if (!Array.isArray(items) || items.length === 0) throw new BadRequestException('Add at least one item');
+    return items.map((raw: any) => {
+      const name = String(raw?.name ?? '').trim();
+      const quantity = Number(raw?.quantity ?? 1);
+      const amountRs = Number(raw?.amountRs);
+      if (!name) throw new BadRequestException('Every item needs a name');
+      if (!Number.isInteger(quantity) || quantity < 1) throw new BadRequestException('Quantity must be a whole number of at least 1');
+      if (!(amountRs > 0)) throw new BadRequestException('Every item needs an amount above zero');
+      return { name, quantity, amountRs };
+    });
+  }
+
+  private assertDateInPlan(sub: any, date: string) {
+    if (!DATE_KEY.test(date)) throw new BadRequestException('Date must look like 2026-08-28');
+    const startKey = shopDateKey(new Date(sub.startedAt));
+    const endKey = shopDateKey(new Date(sub.endsAt));
+    const todayKey = shopDateKey(new Date());
+    if (date < startKey || date > endKey) {
+      throw new BadRequestException(`That date is outside the plan (${startKey} to ${endKey})`);
+    }
+    if (date > todayKey) throw new BadRequestException('A purchase cannot be dated in the future');
+  }
+
+  /**
+   * Staff adding a past purchase by hand (for a customer who bought
+   * before this system existed, or a bill never rung through the app).
+   * It reduces the balance and counts toward spending exactly like a
+   * real order, and appears in the statement marked as added by the shop.
+   */
+  async addHistoryEntry(customerId: string, input: { date: string; items: HistoryItemInput[]; note?: string }, createdByUserId?: string) {
+    const sub: any = await this.prisma.walletSubscription.findFirst({ where: { customerId }, orderBy: { startedAt: 'desc' } });
+    if (!sub) throw new BadRequestException('Start a plan for this customer first');
+    this.assertDateInPlan(sub, input.date);
+    const items = this.parseHistoryItems(input.items);
+    const total = items.reduce((sum, i) => sum + i.amountRs, 0);
+
+    return this.prisma.$transaction(async (tx: any) => {
+      const wallet = await tx.wallet.findUnique({ where: { customerId } });
+      if (!wallet || Number(wallet.balanceRs) < total) {
+        throw new BadRequestException('That is more than the customer\'s available balance');
+      }
+      await tx.wallet.update({ where: { id: wallet.id }, data: { balanceRs: { decrement: total } } });
+      await tx.walletTransaction.create({
+        data: { walletId: wallet.id, amountRs: -total, type: 'ADMIN_ADJUSTMENT', note: `Past purchase added by the shop (${input.date})` },
+      });
+      return tx.walletHistoryEntry.create({
+        data: {
+          subscriptionId: sub.id,
+          customerId,
+          entryDate: new Date(`${input.date}T00:00:00.000Z`),
+          items,
+          amountRs: total,
+          note: input.note?.trim() || null,
+          createdByUserId,
+        },
+      });
+    });
+  }
+
+  async updateHistoryEntry(entryId: string, patch: { date?: string; items?: HistoryItemInput[]; note?: string }) {
+    const entry: any = await this.prisma.walletHistoryEntry.findUnique({ where: { id: entryId }, include: { subscription: true } });
+    if (!entry) throw new NotFoundException('That entry was not found');
+
+    const date = patch.date ?? entry.entryDate.toISOString().slice(0, 10);
+    this.assertDateInPlan(entry.subscription, date);
+    const items = patch.items !== undefined ? this.parseHistoryItems(patch.items) : (entry.items as HistoryItemInput[]);
+    const total = items.reduce((sum, i) => sum + Number(i.amountRs), 0);
+    const delta = total - Number(entry.amountRs);
+
+    return this.prisma.$transaction(async (tx: any) => {
+      const wallet = await tx.wallet.findUnique({ where: { customerId: entry.customerId } });
+      if (delta !== 0) {
+        if (!wallet || Number(wallet.balanceRs) - delta < 0) throw new BadRequestException('That is more than the customer\'s available balance');
+        await tx.wallet.update({ where: { id: wallet.id }, data: { balanceRs: { decrement: delta } } });
+        await tx.walletTransaction.create({
+          data: { walletId: wallet.id, amountRs: -delta, type: 'ADMIN_ADJUSTMENT', note: `Past purchase edited by the shop (${date})` },
+        });
+      }
+      return tx.walletHistoryEntry.update({
+        where: { id: entryId },
+        data: {
+          entryDate: new Date(`${date}T00:00:00.000Z`),
+          items,
+          amountRs: total,
+          note: patch.note !== undefined ? patch.note.trim() || null : entry.note,
+        },
+      });
+    });
+  }
+
+  async deleteHistoryEntry(entryId: string) {
+    const entry: any = await this.prisma.walletHistoryEntry.findUnique({ where: { id: entryId } });
+    if (!entry) throw new NotFoundException('That entry was not found');
+
+    return this.prisma.$transaction(async (tx: any) => {
+      const wallet = await tx.wallet.findUnique({ where: { customerId: entry.customerId } });
+      if (wallet) {
+        await tx.wallet.update({ where: { id: wallet.id }, data: { balanceRs: { increment: Number(entry.amountRs) } } });
+        await tx.walletTransaction.create({
+          data: { walletId: wallet.id, amountRs: Number(entry.amountRs), type: 'ADMIN_ADJUSTMENT', note: 'Past purchase removed by the shop' },
+        });
+      }
+      await tx.walletHistoryEntry.delete({ where: { id: entryId } });
+      return { deleted: true };
+    });
   }
 
   /**
@@ -372,6 +558,25 @@ export class WalletService {
       entry.totalRs += amountRs;
       dayMap.set(key, entry);
     }
+    // Purchases the shop typed in by hand for this plan.
+    const manualEntries: any[] = (await this.prisma.walletHistoryEntry?.findMany({ where: { subscriptionId: sub.id }, orderBy: { entryDate: 'asc' } })) ?? [];
+    for (const e of manualEntries) {
+      const key = new Date(e.entryDate).toISOString().slice(0, 10);
+      const entry = dayMap.get(key) ?? { date: key, dayNumber: dayNumberOf(startKey, key), weekday: weekdayOf(key), orders: [], totalRs: 0 };
+      const amountRs = Number(e.amountRs);
+      entry.orders.push({
+        orderNumber: 'Added by shop',
+        time: '',
+        amountRs,
+        manual: true,
+        entryId: e.id,
+        note: e.note ?? null,
+        items: (e.items as any[]).map((i: any) => ({ name: i.name, quantity: i.quantity, amountRs: Number(i.amountRs) })),
+      });
+      entry.totalRs += amountRs;
+      dayMap.set(key, entry);
+    }
+
     const dayLog = [...dayMap.values()].sort((a, b) => a.date.localeCompare(b.date));
     const spentRs = dayLog.reduce((sum: number, d: any) => sum + d.totalRs, 0);
 
@@ -424,12 +629,17 @@ export class WalletService {
       ? await this.prisma.walletTransaction.findMany({ where: { walletId: { in: walletIds }, type: 'ORDER_PAYMENT' } })
       : [];
 
+    const manualEntries: any[] =
+      (await this.prisma.walletHistoryEntry?.findMany({ where: { subscriptionId: { in: latest.map((s: any) => s.id) } } })) ?? [];
+
     const todayKey = shopDateKey(new Date());
     return latest.map((s: any) => {
       const walletId = s.customer.wallet?.id;
-      const spentRs = debits
-        .filter((t: any) => t.walletId === walletId && new Date(t.createdAt) >= new Date(s.startedAt))
-        .reduce((sum: number, t: any) => sum + Math.abs(Number(t.amountRs)), 0);
+      const spentRs =
+        debits
+          .filter((t: any) => t.walletId === walletId && new Date(t.createdAt) >= new Date(s.startedAt))
+          .reduce((sum: number, t: any) => sum + Math.abs(Number(t.amountRs)), 0) +
+        manualEntries.filter((e: any) => e.subscriptionId === s.id).reduce((sum: number, e: any) => sum + Number(e.amountRs), 0);
       const daysTotal = s.validityDays;
       const daysElapsed = Math.min(Math.max(dayNumberOf(shopDateKey(new Date(s.startedAt)), todayKey), 0), daysTotal);
       return {
