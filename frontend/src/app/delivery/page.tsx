@@ -10,6 +10,8 @@ import { ClockWidget } from '@/components/ClockWidget';
 interface DeliveryOrderRow {
   id: string;
   address: string | null;
+  deliveryLat: number | null;
+  deliveryLng: number | null;
   contactPhone: string;
   deliveryInstructions: string | null;
   pickedUpAt: string | null;
@@ -133,13 +135,26 @@ export default function DeliveryDashboardPage() {
     }
   };
 
+  const collectCash = async (deliveryOrderId: string) => {
+    setUpdating(deliveryOrderId);
+    setError(null);
+    try {
+      await api.confirmCashCollected(deliveryOrderId);
+      load();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setUpdating(null);
+    }
+  };
+
   if (error) {
     return (
       <section className="mx-auto max-w-md px-4 py-16 text-center">
         <p className="mb-4 text-sm text-brand-body">
           Couldn&apos;t load your deliveries — make sure you&apos;re logged in with a delivery account. ({error})
         </p>
-        <a
+        
           href="/login"
           className="rounded-full bg-brand-primary px-6 py-3 text-sm font-bold uppercase tracking-wide text-brand-white hover:bg-brand-accent"
         >
@@ -194,7 +209,7 @@ export default function DeliveryDashboardPage() {
 
       <div className="flex flex-col gap-4">
         {visible.map((d) => (
-          <DeliveryCard key={d.id} d={d} onAct={act} onReportFailure={reportFailure} busy={updating === d.id} />
+          <DeliveryCard key={d.id} d={d} onAct={act} onReportFailure={reportFailure} onCollectCash={collectCash} busy={updating === d.id} />
         ))}
       </div>
     </section>
@@ -205,11 +220,13 @@ function DeliveryCard({
   d,
   onAct,
   onReportFailure,
+  onCollectCash,
   busy,
 }: {
   d: DeliveryOrderRow;
   onAct: (id: string, action: string, otp?: string) => void;
   onReportFailure: (id: string, reason: string, note: string) => void;
+  onCollectCash: (id: string) => void;
   busy: boolean;
 }) {
   const [otpInput, setOtpInput] = useState('');
@@ -281,7 +298,21 @@ function DeliveryCard({
       </p>
 
       {d.order.fulfillmentType === 'DELIVERY' && (
-        <p className="mb-1 text-sm text-brand-black">📍 {d.address ?? 'No address on file'}</p>
+        <>
+          <p className="mb-1 text-sm text-brand-black">📍 {d.address ?? 'No address on file'}</p>
+          
+            href={
+              d.deliveryLat != null && d.deliveryLng != null
+                ? `https://www.google.com/maps/dir/?api=1&destination=${d.deliveryLat},${d.deliveryLng}`
+                : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(d.address ?? '')}`
+            }
+            target="_blank"
+            rel="noreferrer"
+            className="mb-2 inline-block rounded-full bg-brand-black px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-brand-white hover:bg-brand-primary"
+          >
+            🧭 Navigate
+          </a>
+        </>
       )}
       {d.deliveryInstructions && <p className="mb-1 text-xs text-brand-body">Note: {d.deliveryInstructions}</p>}
       <p className="mb-4 text-xs font-semibold text-brand-body">{paymentBadge}</p>
@@ -299,13 +330,22 @@ function DeliveryCard({
               </a>
             </div>
           ) : (
-            <button
-              onClick={generateUpiQr}
-              disabled={generatingUpi}
-              className="w-full rounded-full border-2 border-brand-primary py-2.5 text-xs font-bold uppercase tracking-wide text-brand-primary hover:bg-brand-primary hover:text-brand-white disabled:opacity-60"
-            >
-              {generatingUpi ? 'Generating…' : '📱 Collect via UPI instead'}
-            </button>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => onCollectCash(d.id)}
+                disabled={busy}
+                className="w-full rounded-full bg-brand-primary py-2.5 text-xs font-bold uppercase tracking-wide text-brand-white hover:bg-brand-accent disabled:opacity-60"
+              >
+                💵 Confirm Cash Collected
+              </button>
+              <button
+                onClick={generateUpiQr}
+                disabled={generatingUpi}
+                className="w-full rounded-full border-2 border-brand-primary py-2.5 text-xs font-bold uppercase tracking-wide text-brand-primary hover:bg-brand-primary hover:text-brand-white disabled:opacity-60"
+              >
+                {generatingUpi ? 'Generating…' : '📱 Collect via UPI instead'}
+              </button>
+            </div>
           )}
           {upiError && <p className="mt-2 text-xs text-red-600">{upiError}</p>}
         </div>
@@ -330,7 +370,7 @@ function DeliveryCard({
       )}
 
       <div className="flex gap-2">
-        <a
+        
           href={`tel:${d.contactPhone}`}
           className="flex-1 rounded-full border-2 border-brand-black py-3 text-center text-xs font-bold uppercase tracking-wide text-brand-black hover:border-brand-primary hover:text-brand-primary"
         >
