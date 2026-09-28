@@ -613,7 +613,7 @@ export class AdminService {
     });
   }
 
-   async listCategories() {
+  async listCategories() {
     return this.prisma.productCategory.findMany({ orderBy: { name: 'asc' } });
   }
 
@@ -700,6 +700,8 @@ export class AdminService {
   }
 
   async createCategory(data: { name: string; slug: string }) {
+    return this.prisma.productCategory.create({ data });
+  }
 
   /**
    * Bulk menu import — the whole point is letting a full menu (many
