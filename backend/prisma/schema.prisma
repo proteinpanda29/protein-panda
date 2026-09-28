@@ -271,7 +271,8 @@ model Customer {
   aiSafetyFlags     AiSafetyFlag[]
   notifications     Notification[]
    supportTickets    SupportTicket[]
-  dailyBillingRecords DailyBillingRecord[]
+    dailyBillingRecords DailyBillingRecord[]
+  walletSubscriptions WalletSubscription[]
 
   @@index([goal])
   @@index([gymName])
@@ -1334,7 +1335,25 @@ model WalletPackage {
   isActive     Boolean  @default(true)
   sortOrder    Int      @default(0)
 }
+/// One row per subscription actually started for a customer — the
+/// record behind "Weekly Plan, 1499 + 25 = 1524, day 3 of 7".
+model WalletSubscription {
+  id              String   @id @default(uuid())
+  customerId      String
+  customer        Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  planName        String
+  priceRs         Decimal  @db.Decimal(10, 2)
+  packageFeeRs    Decimal  @db.Decimal(10, 2) @default(0)
+  creditRs        Decimal  @db.Decimal(10, 2)
+  validityDays    Int
+  startedAt       DateTime @default(now())
+  endsAt          DateTime
+  source          String   @default("ONLINE")
+  createdByUserId String?
+  createdAt       DateTime @default(now())
 
+  @@index([customerId, startedAt])
+}
 
 enum WalletTransactionType {
   REFUND            // a refund credited here instead of the original payment method
