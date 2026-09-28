@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { api } from '@/lib/api';
+import { SubscriptionStatement, SubscriptionStatementData } from '@/components/SubscriptionStatement';
 
 interface WalletTransaction {
   id: string;
@@ -14,12 +15,8 @@ interface WalletTransaction {
 
 interface WalletOverview {
   balanceRs: number;
-  activePackageName: string | null;
-  expiresAt: string | null;
   isLowBalance: boolean;
   lowBalanceThresholdRs: number;
-  todaysOrdersRs: number;
-  todaysRemainingBalanceRs: number;
   transactions: WalletTransaction[];
 }
 
@@ -28,11 +25,13 @@ interface WalletPackage {
   name: string;
   priceRs: string;
   creditRs: string;
+  packageFeeRs: string;
   validityDays: number;
 }
 
-export default function WalletPage() {
+export default function SubscriptionPage() {
   const [overview, setOverview] = useState<WalletOverview | null>(null);
+  const [statement, setStatement] = useState<SubscriptionStatementData | null>(null);
   const [packages, setPackages] = useState<WalletPackage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [buying, setBuying] = useState<string | null>(null);
@@ -40,6 +39,7 @@ export default function WalletPage() {
 
   const load = () => {
     api.myWalletOverview().then(setOverview).catch((err) => setError(err.message));
+    api.mySubscription().then(setStatement).catch(() => undefined);
     api.listWalletPackages().then(setPackages).catch(() => undefined);
   };
   useEffect(load, []);
@@ -57,81 +57,60 @@ export default function WalletPage() {
     }
   };
 
-  const isExpired = overview?.expiresAt && new Date(overview.expiresAt) < new Date();
-
   return (
     <section className="mx-auto max-w-3xl px-4 py-12">
-      <h1 className="mb-2 text-2xl font-extrabold uppercase tracking-tight text-brand-black">🐼 Panda Wallet</h1>
-      <p className="mb-8 text-sm text-brand-body">Top up once, order anything on the normal menu, and the bill comes straight out of your wallet.</p>
+      <h1 className="mb-2 text-2xl font-extrabold uppercase tracking-tight text-brand-black">🐼 My Subscription</h1>
+      <p className="mb-6 text-sm text-brand-body">
+        Your plan, your balance, and everything you have bought on it. Each order is taken from your balance automatically.
+      </p>
 
       {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
 
       {overview?.isLowBalance && (
         <div className="mb-6 rounded-xl bg-yellow-50 p-4 text-sm text-yellow-800">
-          ⚠️ Your wallet balance is under ₹{overview.lowBalanceThresholdRs} — top up below to keep ordering without interruption.
+          ⚠️ Your balance is under ₹{overview.lowBalanceThresholdRs}. Please top up to keep ordering without interruption.
         </div>
       )}
 
-      {overview && (
-        <div className="mb-8 rounded-2xl border-2 border-brand-primary bg-brand-bg p-6">
-          <p className="text-xs font-bold uppercase tracking-wide text-brand-body">Balance</p>
-          <p className={`mb-3 text-4xl font-extrabold ${isExpired ? 'text-red-600' : 'text-brand-black'}`}>
-            ₹{overview.balanceRs.toFixed(0)}
-          </p>
-          {overview.activePackageName && (
-            <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-brand-body">
-              <span>Package: <span className="font-semibold text-brand-black">{overview.activePackageName}</span></span>
-              {overview.expiresAt && (
-                <span>
-                  {isExpired ? 'Expired' : 'Valid until'}: <span className={`font-semibold ${isExpired ? 'text-red-600' : 'text-brand-black'}`}>
-                    {new Date(overview.expiresAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-                  </span>
-                </span>
-              )}
-            </div>
-          )}
-          {isExpired && (
-            <p className="mt-2 text-xs text-red-600">Your package has expired — buy a new one below to keep using your Panda Wallet.</p>
-          )}
+      {statement ? (
+        <div className="mb-10">
+          <SubscriptionStatement data={statement} />
         </div>
+      ) : (
+        <p className="mb-10 text-sm text-brand-body">Loading your subscription…</p>
       )}
 
-      {overview && (
-        <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="rounded-2xl border border-brand-grey bg-brand-white p-5">
-            <p className="text-xs font-bold uppercase tracking-wide text-brand-body">Today's Orders</p>
-            <p className="text-2xl font-extrabold text-brand-black">₹{overview.todaysOrdersRs.toFixed(0)}</p>
-          </div>
-          <div className="rounded-2xl border border-brand-grey bg-brand-white p-5">
-            <p className="text-xs font-bold uppercase tracking-wide text-brand-body">Today's Remaining Balance</p>
-            <p className="text-2xl font-extrabold text-brand-black">₹{overview.todaysRemainingBalanceRs.toFixed(0)}</p>
-          </div>
-        </div>
-      )}
-
-      <h2 className="mb-4 text-lg font-extrabold uppercase tracking-tight text-brand-black">Top Up</h2>
-      <div className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {packages.map((pkg) => (
-          <div key={pkg.id} className="rounded-2xl border border-brand-grey bg-brand-white p-5">
-            <p className="mb-1 text-lg font-bold text-brand-black">{pkg.name}</p>
-            <p className="mb-3 text-xs text-brand-body">Valid for {pkg.validityDays} days · ~₹{Math.round(Number(pkg.creditRs) / pkg.validityDays)}/day</p>
-            <div className="mb-4 flex items-baseline justify-between">
-              <span className="text-2xl font-extrabold text-brand-black">₹{pkg.priceRs}</span>
-              <span className="text-xs text-brand-body">₹{pkg.creditRs} wallet credit</span>
-            </div>
-            <button
-              onClick={() => buyPackage(pkg.id)}
-              disabled={buying === pkg.id}
-              className="w-full rounded-full bg-brand-primary py-2.5 text-xs font-bold uppercase tracking-wide text-brand-white hover:bg-brand-accent disabled:opacity-60"
-            >
-              {buying === pkg.id ? 'Generating…' : 'Buy This Package'}
-            </button>
-          </div>
-        ))}
-        {packages.length === 0 && <p className="text-sm text-brand-body">No packages available right now.</p>}
+      <h2 className="mb-3 text-lg font-extrabold uppercase tracking-tight text-brand-black">Subscription Plans</h2>
+      <div className="mb-5 rounded-xl border-2 border-brand-primary bg-brand-bg p-4 text-sm text-brand-black">
+        <p className="font-bold">📍 Before you buy a package</p>
+        <p>Please visit the shop once and confirm your package with our team. We will set it up for you and explain how it works.</p>
       </div>
 
-      <h2 className="mb-4 text-lg font-extrabold uppercase tracking-tight text-brand-black">Transaction History</h2>
+      <div className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {packages.map((pkg) => {
+          const total = Number(pkg.priceRs) + Number(pkg.packageFeeRs);
+          return (
+            <div key={pkg.id} className="rounded-2xl border border-brand-grey bg-brand-white p-5">
+              <p className="mb-1 text-lg font-bold text-brand-black">{pkg.name}</p>
+              <p className="mb-3 text-xs text-brand-body">Valid for {pkg.validityDays} days</p>
+              <p className="text-2xl font-extrabold text-brand-black">
+                ₹{pkg.priceRs} + ₹{pkg.packageFeeRs} = ₹{total}
+              </p>
+              <p className="mb-4 text-xs text-brand-body">₹{pkg.creditRs} food credit + ₹{pkg.packageFeeRs} package &amp; delivery</p>
+              <button
+                onClick={() => buyPackage(pkg.id)}
+                disabled={buying === pkg.id}
+                className="w-full rounded-full bg-brand-primary py-2.5 text-xs font-bold uppercase tracking-wide text-brand-white hover:bg-brand-accent disabled:opacity-60"
+              >
+                {buying === pkg.id ? 'Generating…' : 'Buy Online'}
+              </button>
+            </div>
+          );
+        })}
+        {packages.length === 0 && <p className="text-sm text-brand-body">No plans are available right now. Please visit the shop.</p>}
+      </div>
+
+      <h2 className="mb-3 text-lg font-extrabold uppercase tracking-tight text-brand-black">Wallet Transactions</h2>
       {overview && overview.transactions.length > 0 ? (
         <div className="overflow-x-auto rounded-2xl border border-brand-grey">
           <table className="w-full text-sm">
@@ -162,7 +141,7 @@ export default function WalletPage() {
       {paymentLink && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => { setPaymentLink(null); load(); }}>
           <div className="w-full max-w-md rounded-2xl bg-brand-white p-6 text-center" onClick={(e) => e.stopPropagation()}>
-            <p className="mb-3 text-sm font-bold uppercase tracking-wide text-brand-body">Scan to complete your top-up</p>
+            <p className="mb-3 text-sm font-bold uppercase tracking-wide text-brand-body">Scan to complete your payment</p>
             <div className="mb-4 flex justify-center rounded-xl bg-brand-bg p-4">
               <QRCodeSVG value={paymentLink.shortUrl} size={200} />
             </div>
