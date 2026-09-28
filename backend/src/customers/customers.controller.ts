@@ -31,10 +31,14 @@ export class CustomersController {
   walletOverview(@Req() req: any) {
     return this.wallet.getWalletOverview(req.user.customerId);
   }
+  @Get('me/subscription')
+  subscriptionStatement(@Req() req: any) {
+    return this.wallet.getSubscriptionStatement(req.user.customerId);
+  }
 
   @Get('wallet-packages')
   walletPackages() {
-    return this.wallet.listPackages();
+ return this.wallet.listPackages();
   }
 
   @Post('me/wallet-packages/:id/purchase')
