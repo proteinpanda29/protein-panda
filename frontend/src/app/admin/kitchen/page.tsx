@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import { useOrderUpdates } from '@/lib/useOrderUpdates';
-
+import { NewOrderAlert } from '@/components/NewOrderAlert';
 interface Addon {
   addon: { name: string };
 }
@@ -85,8 +85,9 @@ export default function KitchenDisplayPage() {
     }
   };
 
-  return (
+  return (   
     <div className="min-h-screen bg-brand-black px-4 py-6 text-brand-white">
+      <NewOrderAlert />
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-extrabold uppercase tracking-tight">🐼 Kitchen</h1>
         <a href="/admin" className="text-xs font-semibold uppercase tracking-wide text-brand-grey hover:text-brand-accent">
