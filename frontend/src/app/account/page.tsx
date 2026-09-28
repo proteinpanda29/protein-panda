@@ -29,15 +29,6 @@ export default function AccountPage() {
   const [name, setName] = useState('');
   const [goal, setGoal] = useState('');
   const [dietaryPreference, setDietaryPreference] = useState<string[]>([]);
-
-export default function AccountPage() {
-  const [dashboard, setDashboard] = useState<Dashboard | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-
-  const [name, setName] = useState('');
-  const [goal, setGoal] = useState('');
-  const [dietaryPreference, setDietaryPreference] = useState('');
   const [dailyProteinGoalG, setDailyProteinGoalG] = useState('');
   const [dailyCalorieGoal, setDailyCalorieGoal] = useState('');
   const [gymName, setGymName] = useState('');
@@ -171,7 +162,7 @@ export default function AccountPage() {
         <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-brand-black">Profile</h2>
         <div className="flex flex-col gap-3">
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" className="rounded-lg border border-brand-grey px-3 py-2 text-sm" />
-                   <select value={goal} onChange={(e) => setGoal(e.target.value)} className="rounded-lg border border-brand-grey px-3 py-2 text-sm">
+          <select value={goal} onChange={(e) => setGoal(e.target.value)} className="rounded-lg border border-brand-grey px-3 py-2 text-sm">
             <option value="">Goal — not set</option>
             <option value="WEIGHT_LOSS">Weight loss</option>
             <option value="MUSCLE_STRENGTH">Muscle & strength</option>
@@ -461,9 +452,7 @@ function ReferralCard({ referralCode }: { referralCode: string | null }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Clipboard API can fail on some browsers/contexts (e.g. non-HTTPS,
-      // permission denied) — the link is still visible and selectable
-      // by hand, so this isn't a hard failure, just a missed shortcut.
+      // Clipboard API can fail on some browsers/contexts
     }
   };
 
@@ -560,11 +549,6 @@ function SessionsCard() {
     setRevoking(session.id);
     try {
       await api.revokeSession(session.id);
-      // Revoking the device making THIS request means the token in
-      // this very browser is now rejected on the next call — logging
-      // out immediately here is the correct behavior, not an edge case
-      // to work around. Revoking a DIFFERENT device just removes it
-      // from the list; nothing changes about the current session.
       if (session.isCurrent) {
         logout();
         return;
