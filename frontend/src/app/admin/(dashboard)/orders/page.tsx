@@ -13,7 +13,7 @@ import { printReceipt } from '@/lib/printReceipt';
  * interaction on the page; a failed beep should never break the order
  * list itself.
  */
-function playNewOrderAlert() {
+function playFallbackBeep() {
   try {
     const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
     const ctx = new AudioContextClass();
@@ -34,6 +34,25 @@ function playNewOrderAlert() {
     playTone(1175, now + 0.15, 0.25);
   } catch {
     // Silently skip — a missed sound is not worth surfacing an error for.
+  }
+}
+
+/**
+ * Plays the shop's own alert sound (public/sounds/new-order.mp3). If the
+ * file is missing, or the browser blocks audio until the page has had a
+ * click, it falls back to the built-in beep so an alert is never silent.
+ */
+function playNewOrderAlert() {
+  try {
+    const audio = new Audio('/sounds/new-order.mp3');
+    audio.volume = 1;
+    const result = audio.play();
+    if (result !== undefined) {
+      result.catch(() => playFallbackBeep());
+    }
+    audio.addEventListener('error', () => playFallbackBeep());
+  } catch {
+    playFallbackBeep();
   }
 }
 
