@@ -483,6 +483,9 @@ function TipForm({ orderId, onDone, onClose }: { orderId: string; onDone: (msg: 
         await api.tipDeliveryPerson(orderId, amount);
         onDone('Thank you — your tip has been sent! 💚');
       } else {
+        // A real payment link, not wallet debit — the tip is applied
+        // to the delivery the moment Razorpay confirms it was paid,
+        // same as any other Razorpay payment in this app.
         const link = await api.createTipPaymentLink(orderId, amount);
         setUpiLink(link);
       }
