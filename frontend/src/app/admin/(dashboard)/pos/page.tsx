@@ -168,7 +168,9 @@ export default function PosPage() {
   const updateQty = (key: string, qty: number) => {
     setCart((prev) => (qty <= 0 ? prev.filter((l) => l.key !== key) : prev.map((l) => (l.key === key ? { ...l, quantity: qty } : l))));
   };
-  const total = cart.reduce((sum, l) => sum + l.unitPriceRs * l.quantity, 0);
+    const subtotal = cart.reduce((sum, l) => sum + l.unitPriceRs * l.quantity, 0);
+  const discountRs = manualDiscount.trim() ? Math.min(Number(manualDiscount) || 0, subtotal) : 0;
+  const total = subtotal - discountRs;
 
   const categoryNames = Array.from(new Set(products.map((p) => p.category?.name).filter((n): n is string => !!n))).sort();
   const filteredProducts = products.filter((p) => {
@@ -220,10 +222,13 @@ export default function PosPage() {
       // Captured now, before cart/customer get cleared right below —
       // this is the one moment both are still guaranteed to reflect
       // exactly what was actually sold.
-      const receiptData = {
+          const receiptData = {
         customerName: customer.name,
         fulfillmentType,
         totalRs: total,
+        subtotalRs: subtotal,
+        discountRs: discountRs > 0 ? discountRs : undefined,
+        discountReason: discountRs > 0 ? manualDiscountReason.trim() || undefined : undefined,
         items: cart.map((l) => ({ quantity: l.quantity, name: l.name, unitPriceRs: l.unitPriceRs })),
       };
       if (order.paymentLink) {
@@ -564,9 +569,23 @@ export default function PosPage() {
                 </select>
               )}
 
-              <div className="mb-3 flex items-center justify-between rounded-xl bg-brand-black p-3 text-brand-white">
-                <span className="text-xs uppercase tracking-wide text-brand-grey">Total (before discounts)</span>
-                <span className="text-lg font-extrabold">₹{total.toFixed(0)}</span>
+                           <div className="mb-3 flex flex-col gap-1 rounded-xl bg-brand-black p-3 text-brand-white">
+                {discountRs > 0 && (
+                  <div className="flex items-center justify-between text-xs text-brand-grey">
+                    <span>Subtotal</span>
+                    <span>₹{subtotal.toFixed(0)}</span>
+                  </div>
+                )}
+                {discountRs > 0 && (
+                  <div className="flex items-center justify-between text-xs text-brand-primary">
+                    <span>Discount{manualDiscountReason.trim() ? ` (${manualDiscountReason.trim()})` : ''}</span>
+                    <span>-₹{discountRs.toFixed(0)}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs uppercase tracking-wide text-brand-grey">Total{discountRs > 0 ? '' : ' (before delivery/fees)'}</span>
+                  <span className="text-lg font-extrabold">₹{total.toFixed(0)}</span>
+                </div>
               </div>
 
               {error && <p className="mb-3 text-xs text-red-600">{error}</p>}
