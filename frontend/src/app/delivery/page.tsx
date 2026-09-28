@@ -155,7 +155,7 @@ export default function DeliveryDashboardPage() {
           Couldn&apos;t load your deliveries — make sure you&apos;re logged in with a delivery account. ({error})
         </p>
         
-          href="/login"
+          <a href="/login"
           className="rounded-full bg-brand-primary px-6 py-3 text-sm font-bold uppercase tracking-wide text-brand-white hover:bg-brand-accent"
         >
           Go to Login
@@ -301,7 +301,7 @@ function DeliveryCard({
         <>
           <p className="mb-1 text-sm text-brand-black">📍 {d.address ?? 'No address on file'}</p>
           
-            href={
+           <a href={
               d.deliveryLat != null && d.deliveryLng != null
                 ? `https://www.google.com/maps/dir/?api=1&destination=${d.deliveryLat},${d.deliveryLng}`
                 : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(d.address ?? '')}`
@@ -371,7 +371,7 @@ function DeliveryCard({
 
       <div className="flex gap-2">
         
-          href={`tel:${d.contactPhone}`}
+         <a href={`tel:${d.contactPhone}`}
           className="flex-1 rounded-full border-2 border-brand-black py-3 text-center text-xs font-bold uppercase tracking-wide text-brand-black hover:border-brand-primary hover:text-brand-primary"
         >
           📞 Call Customer
