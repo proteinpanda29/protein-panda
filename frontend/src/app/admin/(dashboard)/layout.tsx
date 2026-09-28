@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { logout } from '@/lib/session';
 import { ClockWidget } from '@/components/ClockWidget';
+import { NewOrderAlert } from '@/components/NewOrderAlert';
 
 // Each item's owning department(s), matching the business-department
 // structure you laid out. `null` means Owner-only — a route the
@@ -76,7 +77,8 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   });
 
   return (
-    <div className="mx-auto flex max-w-6xl gap-8 px-4 py-10">
+        <div className="mx-auto flex max-w-6xl gap-8 px-4 py-10">
+      <NewOrderAlert />
       <aside className="w-48 shrink-0">
         <p className="mb-1 text-xs font-bold uppercase tracking-widest text-brand-primary">Admin</p>
         {!isOwner && (
