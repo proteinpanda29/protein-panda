@@ -608,22 +608,31 @@ export class AdminService {
    * silently wrapping everything in one transaction where a single
    * blocked product would roll back every other deletion too.
    */
-  async bulkDeleteProducts(ids: string[]) {
+    async bulkDeleteProducts(ids: string[]) {
     if (!Array.isArray(ids) || ids.length === 0) throw new BadRequestException('Select at least one product to delete');
 
     const results: { id: string; name: string | null; status: 'deleted' | 'skipped'; reason?: string }[] = [];
     for (const id of ids) {
-      const product = await this.prisma.product.findUnique({ where: { id }, select: { name: true } });
+      let name: string | null = null;
       try {
+        const product = await this.prisma.product.findUnique({ where: { id }, select: { name: true } });
+        name = product?.name ?? null;
+        if (!product) {
+          results.push({ id, name: null, status: 'skipped', reason: 'Already deleted' });
+          continue;
+        }
         await this.prisma.product.delete({ where: { id } });
-        results.push({ id, name: product?.name ?? null, status: 'deleted' });
+        results.push({ id, name, status: 'deleted' });
       } catch (err: any) {
         if (err.code === 'P2003') {
-          results.push({ id, name: product?.name ?? null, status: 'skipped', reason: 'Has existing orders — use Disable instead' });
+          results.push({ id, name, status: 'skipped', reason: 'Has existing orders — use Disable instead' });
         } else if (err.code === 'P2025') {
-          results.push({ id, name: product?.name ?? null, status: 'skipped', reason: 'Already deleted' });
+          results.push({ id, name, status: 'skipped', reason: 'Already deleted' });
         } else {
-          throw err;
+          // One product failing for an unexpected reason shouldn't take
+          // down the whole batch — everything already deleted stays
+          // deleted, and this one is reported so it's never silent.
+          results.push({ id, name, status: 'skipped', reason: err.message ?? 'Could not be deleted' });
         }
       }
     }
