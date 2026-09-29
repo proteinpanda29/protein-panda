@@ -272,10 +272,16 @@ export class AdminController {
     return this.admin.updateProduct(id, body, req.user.userId, req.user.role);
   }
 
-  @Delete('products/:id')
+   @Delete('products/:id')
   @Departments(StaffDepartment.SALES)
   deleteProduct(@Param('id') id: string) {
     return this.admin.deleteProduct(id);
+  }
+
+  @Post('products/bulk-delete')
+  @Departments(StaffDepartment.SALES)
+  bulkDeleteProducts(@Body('ids') ids: string[]) {
+    return this.admin.bulkDeleteProducts(ids);
   }
 
   @Get('allergens')
