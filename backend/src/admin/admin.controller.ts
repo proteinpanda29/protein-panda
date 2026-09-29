@@ -284,6 +284,12 @@ export class AdminController {
     return this.admin.bulkDeleteProducts(ids);
   }
 
+  @Post('products/bulk-active')
+  @Departments(StaffDepartment.SALES)
+  bulkSetProductsActive(@Body() body: { ids: string[]; isActive: boolean }) {
+    return this.admin.bulkSetProductsActive(body.ids, body.isActive);
+  }
+
   @Get('allergens')
   @Departments(StaffDepartment.SALES)
   allergens() {
