@@ -200,7 +200,8 @@ export const api = {
   adminBulkImportMenu: (items: unknown[]) => request('/admin/products/bulk-import', { method: 'POST', body: JSON.stringify({ items }) }),
   adminUpdateProduct: (id: string, payload: unknown) =>
     request(`/admin/products/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
-  adminDeleteProduct: (id: string) => request(`/admin/products/${id}`, { method: 'DELETE' }),
+   adminDeleteProduct: (id: string) => request(`/admin/products/${id}`, { method: 'DELETE' }),
+  adminBulkDeleteProducts: (ids: string[]) => request('/admin/products/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
   adminGetUploadSignature: () => request('/admin/uploads/signature'),
   myAddresses: () => request('/addresses'),
   createAddress: (payload: unknown) => request('/addresses', { method: 'POST', body: JSON.stringify(payload) }),
