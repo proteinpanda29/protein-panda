@@ -16,6 +16,9 @@ const navItems: { label: string; href: string; departments?: (string | null)[] }
   { label: 'Overview', href: '/admin' },
   { label: 'New Sale (POS)', href: '/admin/pos', departments: ['SALES'] },
   { label: 'Orders', href: '/admin/orders', departments: ['SALES'] },
+    { label: 'Panda Wallet Packages', href: '/admin/wallet-packages', departments: ['SALES'] },
+  { label: 'Subscription Counter', href: '/admin/subscription-pos', departments: ['SALES'] },
+  { label: 'Subscriber Billing', href: '/admin/subscription-billing', departments: ['SALES'] },
   { label: 'Coupons', href: '/admin/coupons', departments: ['SALES'] },
   { label: 'Customers', href: '/admin/customers', departments: ['SALES'] },
   { label: 'Support Tickets', href: '/admin/support-tickets', departments: ['SALES'] },
@@ -46,8 +49,6 @@ const navItems: { label: string; href: string; departments?: (string | null)[] }
   { label: 'Staff Accounts', href: '/admin/staff', departments: [null] },
   { label: 'Shop Settings', href: '/admin/settings', departments: [null] },
     { label: 'Business Rules', href: '/admin/business-rules', departments: [null] },
-  { label: 'Panda Wallet Packages', href: '/admin/wallet-packages', departments: ['SALES'] },
-  { label: 'Subscription Counter', href: '/admin/subscription-pos', departments: ['SALES'] },
   { label: 'QR Codes', href: '/admin/qr-codes', departments: [null] },
   { label: 'Audit Log', href: '/admin/audit-log', departments: [null] },
 ];
