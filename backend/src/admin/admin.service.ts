@@ -589,7 +589,7 @@ export class AdminService {
    * around. "Disable" (isActive: false via updateProduct) remains the
    * right tool for retiring a product that has order history.
    */
-  async deleteProduct(id: string) {
+   async deleteProduct(id: string) {
     try {
       return await this.prisma.product.delete({ where: { id } });
     } catch (err: any) {
@@ -598,6 +598,42 @@ export class AdminService {
       }
       throw err;
     }
+  }
+
+  /**
+   * Deletes as many of the given products as it safely can, one at a
+   * time, and reports which ones it skipped and why — rather than
+   * either failing the whole batch on the first product with order
+   * history (deleteProduct's own foreign-key-safe behavior), or
+   * silently wrapping everything in one transaction where a single
+   * blocked product would roll back every other deletion too.
+   */
+  async bulkDeleteProducts(ids: string[]) {
+    if (!Array.isArray(ids) || ids.length === 0) throw new BadRequestException('Select at least one product to delete');
+
+    const results: { id: string; name: string | null; status: 'deleted' | 'skipped'; reason?: string }[] = [];
+    for (const id of ids) {
+      const product = await this.prisma.product.findUnique({ where: { id }, select: { name: true } });
+      try {
+        await this.prisma.product.delete({ where: { id } });
+        results.push({ id, name: product?.name ?? null, status: 'deleted' });
+      } catch (err: any) {
+        if (err.code === 'P2003') {
+          results.push({ id, name: product?.name ?? null, status: 'skipped', reason: 'Has existing orders — use Disable instead' });
+        } else if (err.code === 'P2025') {
+          results.push({ id, name: product?.name ?? null, status: 'skipped', reason: 'Already deleted' });
+        } else {
+          throw err;
+        }
+      }
+    }
+
+    return {
+      requested: ids.length,
+      deleted: results.filter((r) => r.status === 'deleted').length,
+      skipped: results.filter((r) => r.status === 'skipped').length,
+      results,
+    };
   }
 
   async getProductDetail(id: string) {
