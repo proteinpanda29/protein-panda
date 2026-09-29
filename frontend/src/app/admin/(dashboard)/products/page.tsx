@@ -37,6 +37,9 @@ export default function AdminProductsPage() {
     prepTimeMinutes: '',
   });
   const [saving, setSaving] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkResult, setBulkResult] = useState<{ deleted: number; skipped: number; results: { id: string; name: string | null; status: string; reason?: string }[] } | null>(null);
 
   const load = () => {
     Promise.all([api.adminProducts(), api.adminCategories()])
@@ -65,6 +68,37 @@ export default function AdminProductsPage() {
       load();
     } catch (err: any) {
       setError(err.message);
+    }
+  };
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    setSelectedIds((prev) => (prev.size === products.length ? new Set() : new Set(products.map((p) => p.id))));
+  };
+
+  const bulkDelete = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Delete ${selectedIds.size} selected product(s)? Any with existing orders will be skipped automatically — use "Disable" for those instead.`)) return;
+    setBulkDeleting(true);
+    setError(null);
+    setBulkResult(null);
+    try {
+      const result = await api.adminBulkDeleteProducts([...selectedIds]);
+      setBulkResult(result);
+      setSelectedIds(new Set());
+      load();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -151,8 +185,7 @@ export default function AdminProductsPage() {
           >
             {showCategoryForm ? 'Cancel' : '+ Category'}
           </button>
-          <a
-            href="/admin/products/import"
+          <a href="/admin/products/import"
             className="rounded-full border-2 border-brand-black px-4 py-2 text-xs font-bold uppercase tracking-wide text-brand-black hover:border-brand-primary hover:text-brand-primary"
           >
             📄 Bulk Import
@@ -272,6 +305,55 @@ export default function AdminProductsPage() {
         </form>
       )}
 
+      <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-brand-grey bg-brand-white p-3">
+        <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-brand-body">
+          <input
+            type="checkbox"
+            checked={products.length > 0 && selectedIds.size === products.length}
+            onChange={toggleSelectAll}
+          />
+          Select all ({products.length})
+        </label>
+        {selectedIds.size > 0 && (
+          <>
+            <span className="text-xs text-brand-body">{selectedIds.size} selected</span>
+            <button
+              onClick={bulkDelete}
+              disabled={bulkDeleting}
+              className="rounded-full border-2 border-red-600 px-4 py-2 text-xs font-bold uppercase tracking-wide text-red-600 hover:bg-red-600 hover:text-white disabled:opacity-60"
+            >
+              {bulkDeleting ? 'Deleting…' : `🗑️ Delete Selected (${selectedIds.size})`}
+            </button>
+            <button onClick={() => setSelectedIds(new Set())} className="text-xs font-semibold text-brand-body underline">
+              Clear selection
+            </button>
+          </>
+        )}
+      </div>
+
+      {bulkResult && (
+        <div className="mb-4 rounded-2xl border border-brand-grey bg-brand-bg p-4 text-sm">
+          <p className="mb-2 font-bold text-brand-black">
+            Deleted {bulkResult.deleted} of {bulkResult.deleted + bulkResult.skipped} selected product(s).
+          </p>
+          {bulkResult.skipped > 0 && (
+            <div className="mb-1">
+              <p className="mb-1 text-xs font-bold uppercase text-brand-body">Skipped (has existing orders — use Disable instead):</p>
+              <ul className="list-disc pl-5 text-brand-body">
+                {bulkResult.results
+                  .filter((r) => r.status === 'skipped')
+                  .map((r) => (
+                    <li key={r.id}>{r.name ?? r.id}</li>
+                  ))}
+              </ul>
+            </div>
+          )}
+          <button onClick={() => setBulkResult(null)} className="mt-1 text-xs font-semibold text-brand-primary underline">
+            Dismiss
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-col gap-8">
         {categoryNames.map((categoryName) => (
           <div key={categoryName}>
@@ -279,6 +361,13 @@ export default function AdminProductsPage() {
             <div className="flex flex-col gap-3">
               {productsByCategory.get(categoryName)!.map((p) => (
                 <div key={p.id} className="flex items-center justify-between rounded-2xl border border-brand-grey bg-brand-white p-4">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(p.id)}
+                    onChange={() => toggleSelected(p.id)}
+                    className="mr-3 h-4 w-4 shrink-0"
+                    aria-label={`Select ${p.name}`}
+                  />
                   <a href={`/admin/products/${p.id}`} className="flex-1">
                     <p className="font-bold text-brand-black hover:text-brand-primary">{p.name}</p>
                     <p className="text-xs text-brand-body">
@@ -287,8 +376,7 @@ export default function AdminProductsPage() {
                     </p>
                   </a>
                   <div className="flex items-center gap-2">
-                    <a
-                      href={`/admin/products/${p.id}`}
+                    <a href={`/admin/products/${p.id}`}
                       className="rounded-full border-2 border-brand-black px-4 py-2 text-xs font-bold uppercase tracking-wide text-brand-black hover:border-brand-primary hover:text-brand-primary"
                     >
                       Edit
