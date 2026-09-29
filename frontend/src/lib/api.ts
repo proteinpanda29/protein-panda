@@ -201,7 +201,8 @@ export const api = {
   adminUpdateProduct: (id: string, payload: unknown) =>
     request(`/admin/products/${id}`, { method: 'PATCH', body: JSON.stringify(payload) }),
    adminDeleteProduct: (id: string) => request(`/admin/products/${id}`, { method: 'DELETE' }),
-  adminBulkDeleteProducts: (ids: string[]) => request('/admin/products/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
+   adminBulkDeleteProducts: (ids: string[]) => request('/admin/products/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
+  adminBulkSetProductsActive: (ids: string[], isActive: boolean) => request('/admin/products/bulk-active', { method: 'POST', body: JSON.stringify({ ids, isActive }) }),
   adminGetUploadSignature: () => request('/admin/uploads/signature'),
   myAddresses: () => request('/addresses'),
   createAddress: (payload: unknown) => request('/addresses', { method: 'POST', body: JSON.stringify(payload) }),
