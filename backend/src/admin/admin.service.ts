@@ -637,12 +637,25 @@ export class AdminService {
       }
     }
 
-    return {
+        return {
       requested: ids.length,
       deleted: results.filter((r) => r.status === 'deleted').length,
       skipped: results.filter((r) => r.status === 'skipped').length,
       results,
     };
+  }
+
+  /**
+   * The real answer for a shop where most products already have order
+   * history: hiding many products from the menu at once, with nothing
+   * destroyed. Unlike bulkDeleteProducts this never fails per-product —
+   * setting isActive is always safe, no foreign key involved — so every
+   * requested id is simply updated.
+   */
+  async bulkSetProductsActive(ids: string[], isActive: boolean) {
+    if (!Array.isArray(ids) || ids.length === 0) throw new BadRequestException('Select at least one product');
+    const result = await this.prisma.product.updateMany({ where: { id: { in: ids } }, data: { isActive } });
+    return { requested: ids.length, updated: result.count };
   }
 
   async getProductDetail(id: string) {
