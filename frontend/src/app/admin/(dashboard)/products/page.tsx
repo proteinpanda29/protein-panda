@@ -101,6 +101,22 @@ export default function AdminProductsPage() {
       setBulkDeleting(false);
     }
   };
+    const bulkSetActive = async (isActive: boolean) => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`${isActive ? 'Enable' : 'Disable'} ${selectedIds.size} selected product(s)? ${isActive ? 'They will show on the menu again.' : 'They will be hidden from the menu — nothing is deleted, and you can turn them back on anytime.'}`)) return;
+    setBulkDeleting(true);
+    setError(null);
+    setBulkResult(null);
+    try {
+      await api.adminBulkSetProductsActive([...selectedIds], isActive);
+      setSelectedIds(new Set());
+      load();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
 
   const deleteCategory = async (category: Category) => {
     if (!confirm(`Delete category "${category.name}"? This only works if it has no products in it.`)) return;
@@ -317,6 +333,20 @@ export default function AdminProductsPage() {
         {selectedIds.size > 0 && (
           <>
             <span className="text-xs text-brand-body">{selectedIds.size} selected</span>
+                      <button
+              onClick={() => bulkSetActive(false)}
+              disabled={bulkDeleting}
+              className="rounded-full border-2 border-brand-black px-4 py-2 text-xs font-bold uppercase tracking-wide text-brand-black hover:border-brand-primary hover:text-brand-primary disabled:opacity-60"
+            >
+              {bulkDeleting ? 'Working…' : `🔴 Disable Selected (${selectedIds.size})`}
+            </button>
+            <button
+              onClick={() => bulkSetActive(true)}
+              disabled={bulkDeleting}
+              className="rounded-full border-2 border-brand-primary px-4 py-2 text-xs font-bold uppercase tracking-wide text-brand-primary hover:bg-brand-primary hover:text-white disabled:opacity-60"
+            >
+              {bulkDeleting ? 'Working…' : `🟢 Enable Selected (${selectedIds.size})`}
+            </button>
             <button
               onClick={bulkDelete}
               disabled={bulkDeleting}
